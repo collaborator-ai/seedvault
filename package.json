@@ -1,17 +1,10 @@
 {
-  "name": "seedvault-service",
-  "version": "0.1.0",
-  "type": "module",
+  "name": "seedvault",
+  "private": true,
+  "workspaces": ["server", "cli", "electron"],
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
-    "start": "bun run src/index.ts",
-    "check": "tsc --noEmit"
-  },
-  "dependencies": {
-    "hono": "^4"
-  },
-  "devDependencies": {
-    "@types/bun": "latest",
-    "typescript": "^5"
+    "dev:server": "bun run --filter @seedvault/server dev",
+    "dev:cli": "bun run --filter @seedvault/cli dev",
+    "check": "bun run --filter '*' check"
   }
 }

@@ -530,14 +530,10 @@ Config lives at `~/.config/seedvault/config.json`:
 
 ### `seedvault` (monorepo)
 ```
-packages/
-  service/    # Server — deploys to Fly.io or self-hosted
-  cli/        # sv CLI + daemon — published to npm
-  web/        # Web frontend
+server/     # Server — deploys to Fly.io or self-hosted
+cli/        # sv CLI + daemon — published to npm
+electron/   # Desktop app — bundles the daemon
 ```
-
-### `seedvault-app` (separate repo)
-Electron desktop app. Bundles the daemon — no CLI needed for GUI users.
 
 ### Install paths
 
