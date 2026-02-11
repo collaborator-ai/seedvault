@@ -35,6 +35,12 @@ const uiPath = resolve(import.meta.dirname, "index.html");
 const isDev = process.env.NODE_ENV !== "production";
 const uiHtmlCached = readFileSync(uiPath, "utf-8");
 
+/** Extract and decode the file path from a wildcard route */
+function extractFilePath(reqPath: string, bankId: string): string {
+  const raw = reqPath.replace(`/v1/banks/${bankId}/files/`, "");
+  return decodeURIComponent(raw);
+}
+
 export function createApp(storageRoot: string): Hono {
   const app = new Hono();
 
@@ -162,7 +168,7 @@ export function createApp(storageRoot: string): Hono {
       return c.json({ error: "Bank not found" }, 404);
     }
 
-    const filePath = c.req.path.replace(`/v1/banks/${bankId}/files/`, "");
+    const filePath = extractFilePath(c.req.path, bankId);
     const pathError = validatePath(filePath);
     if (pathError) {
       return c.json({ error: pathError }, 400);
@@ -202,7 +208,7 @@ export function createApp(storageRoot: string): Hono {
       return c.json({ error: "You can only delete from your own bank" }, 403);
     }
 
-    const filePath = c.req.path.replace(`/v1/banks/${bankId}/files/`, "");
+    const filePath = extractFilePath(c.req.path, bankId);
     const pathError = validatePath(filePath);
     if (pathError) {
       return c.json({ error: pathError }, 400);
@@ -251,7 +257,7 @@ export function createApp(storageRoot: string): Hono {
       return c.json({ error: "Bank not found" }, 404);
     }
 
-    const filePath = c.req.path.replace(`/v1/banks/${bankId}/files/`, "");
+    const filePath = extractFilePath(c.req.path, bankId);
     const pathError = validatePath(filePath);
     if (pathError) {
       return c.json({ error: pathError }, 400);

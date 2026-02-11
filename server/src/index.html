@@ -69,20 +69,23 @@
         flex: 1;
         overflow: auto;
       }
-      .list { list-style: none; padding: 0; }
-      .list button {
+      .tree { list-style: none; padding: 0; }
+      .tree ul { list-style: none; padding: 0; }
+      .tree-row {
         display: block;
         width: 100%;
         text-align: left;
         border: none;
-        border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
-        padding: 4px 8px;
+        padding: 3px 8px;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        cursor: pointer;
       }
-      .list button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
-      .list button.active { font-weight: bold; }
+      .tree-row:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+      .tree-row.active { font-weight: bold; }
+      .tree-row .arrow { display: inline-block; width: 1em; text-align: center; }
+      .tree ul.collapsed { display: none; }
       #content {
         padding: 8px;
         white-space: pre-wrap;
@@ -95,13 +98,12 @@
   <body>
     <div class="top">
       <input id="token" type="password" placeholder="sv_..." />
-      <select id="bank"><option value="">--</option></select>
       <button id="connect">Load</button>
     </div>
     <div class="grid">
       <section id="nav" class="panel" style="width:220px">
         <div class="panel-head">Files</div>
-        <div class="panel-body"><ul id="files" class="list"></ul></div>
+        <div class="panel-body"><ul id="files" class="tree"></ul></div>
       </section>
       <div id="divider" class="divider"></div>
       <section class="panel">
@@ -113,7 +115,6 @@
     <script>
       const $ = (id) => document.getElementById(id);
       const tokenEl = $("token");
-      const bankEl = $("bank");
       const filesEl = $("files");
       const contentEl = $("content");
       const statusEl = $("status");
@@ -137,51 +138,117 @@
       const savedBank = localStorage.getItem("sv-bank") || "";
       const savedFile = localStorage.getItem("sv-file") || "";
 
+      function buildTree(paths) {
+        const root = {};
+        for (const p of paths) {
+          const parts = p.split("/");
+          let node = root;
+          for (const part of parts) {
+            if (!node[part]) node[part] = {};
+            node = node[part];
+          }
+          node.__file = p;
+        }
+        return root;
+      }
+
+      function renderTree(node, parentUl, bankId, depth) {
+        const keys = Object.keys(node).filter((k) => k !== "__file").sort((a, b) => {
+          const aDir = Object.keys(node[a]).some((k) => k !== "__file");
+          const bDir = Object.keys(node[b]).some((k) => k !== "__file");
+          if (aDir !== bDir) return aDir ? -1 : 1;
+          return a.localeCompare(b);
+        });
+        for (const key of keys) {
+          const child = node[key];
+          const isFile = child.__file && Object.keys(child).length === 1;
+          const li = document.createElement("li");
+          const row = document.createElement("div");
+          row.className = "tree-row";
+          row.style.paddingLeft = (depth * 12 + 8) + "px";
+
+          if (isFile) {
+            row.innerHTML = '<span class="arrow">&nbsp;</span>' + key;
+            row.dataset.path = child.__file;
+            row.dataset.bank = bankId;
+            row.onclick = () => loadContent(bankId, child.__file, row);
+          } else {
+            const sub = document.createElement("ul");
+            row.innerHTML = '<span class="arrow">&#9660;</span>' + key;
+            row.onclick = () => {
+              sub.classList.toggle("collapsed");
+              row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
+            };
+            renderTree(child, sub, bankId, depth + 1);
+            li.appendChild(row);
+            li.appendChild(sub);
+            parentUl.appendChild(li);
+            continue;
+          }
+          li.appendChild(row);
+          parentUl.appendChild(li);
+        }
+      }
+
+      async function loadBankFiles(bankId, sub) {
+        sub.innerHTML = "";
+        status("Loading files...");
+        const { files } = await (await api("/v1/banks/" + encodeURIComponent(bankId) + "/files")).json();
+        const tree = buildTree(files.map((f) => f.path));
+        renderTree(tree, sub, bankId, 1);
+        status(files.length + " file(s)");
+      }
+
       async function loadBanks() {
+        filesEl.innerHTML = "";
+        contentEl.textContent = "";
         status("Loading banks...");
         const { banks } = await (await api("/v1/banks")).json();
-        bankEl.innerHTML = '<option value="">--</option>';
+
         for (const b of banks) {
-          const opt = document.createElement("option");
-          opt.value = b.id;
-          opt.textContent = b.name;
-          bankEl.appendChild(opt);
-        }
-        if (savedBank) {
-          bankEl.value = savedBank;
-          if (bankEl.value === savedBank) await loadFiles(savedBank);
+          const li = document.createElement("li");
+          const row = document.createElement("div");
+          row.className = "tree-row";
+          row.style.paddingLeft = "8px";
+          const sub = document.createElement("ul");
+          let loaded = false;
+          row.innerHTML = '<span class="arrow">&#9654;</span>' + b.name;
+          row.onclick = async () => {
+            const collapsed = sub.classList.contains("collapsed") || !sub.hasChildNodes();
+            if (collapsed) {
+              sub.classList.remove("collapsed");
+              row.querySelector(".arrow").innerHTML = "&#9660;";
+              if (!loaded) {
+                loaded = true;
+                await loadBankFiles(b.id, sub);
+              }
+            } else {
+              sub.classList.add("collapsed");
+              row.querySelector(".arrow").innerHTML = "&#9654;";
+            }
+          };
+          li.appendChild(row);
+          li.appendChild(sub);
+          filesEl.appendChild(li);
+
+          if (b.id === savedBank) {
+            sub.classList.remove("collapsed");
+            row.querySelector(".arrow").innerHTML = "&#9660;";
+            loaded = true;
+            await loadBankFiles(b.id, sub);
+            if (savedFile) {
+              const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
+              if (match) await loadContent(b.id, savedFile, match);
+            }
+          }
         }
         status(banks.length + " bank(s)");
       }
 
-      async function loadFiles(bankId) {
-        filesEl.innerHTML = "";
-        contentEl.textContent = "";
+      async function loadContent(bankId, path, row) {
+        filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
+        row.classList.add("active");
         localStorage.setItem("sv-bank", bankId);
-        status("Loading files...");
-        const { files } = await (await api("/v1/banks/" + encodeURIComponent(bankId) + "/files")).json();
-        for (const f of files) {
-          const li = document.createElement("li");
-          const btn = document.createElement("button");
-          btn.textContent = f.path;
-          btn.onclick = () => loadContent(bankId, f.path, btn);
-          li.appendChild(btn);
-          filesEl.appendChild(li);
-        }
-        if (savedFile) {
-          for (const btn of filesEl.querySelectorAll("button")) {
-            if (btn.textContent === savedFile) {
-              await loadContent(bankId, savedFile, btn);
-              break;
-            }
-          }
-        }
-        status(files.length + " file(s)");
-      }
-
-      async function loadContent(bankId, path, btn) {
-        filesEl.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
         localStorage.setItem("sv-file", path);
         status("Loading " + path + "...");
         const encodedPath = path.split("/").map(encodeURIComponent).join("/");
@@ -189,11 +256,6 @@
         contentEl.textContent = await res.text();
         status(path);
       }
-
-      bankEl.onchange = () => {
-        localStorage.removeItem("sv-file");
-        if (bankEl.value) loadFiles(bankEl.value).catch((e) => status(e.message));
-      };
 
       $("connect").onclick = () => {
         token = tokenEl.value.trim();
