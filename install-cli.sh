@@ -170,15 +170,11 @@ run_onboarding() {
     return
   fi
 
-  ui_info "  Starting interactive setup..."
-  echo ""
-
-  # When piped (curl | bash), stdin is the script — redirect /dev/tty so
-  # sv init can read interactive input. Works with both old and new CLI versions.
-  if [[ ! -t 0 ]] && [[ -e /dev/tty ]]; then
-    sv init < /dev/tty
-  elif [[ -t 0 ]]; then
-    sv init
+  if [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
+    ui_info "  Starting interactive setup..."
+    echo ""
+    exec </dev/tty
+    exec sv init
   else
     ui_info "  No interactive terminal available — skipping onboarding."
     ui_info "  Run 'sv init' to configure Seedvault."
