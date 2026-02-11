@@ -297,7 +297,7 @@
         const res = await api("/v1/sh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cmd: "cat '" + username + "/" + path.replace(/'/g, "'\\''") + "'" }),
+          body: JSON.stringify({ cmd: "cat '" + path.replace(/'/g, "'\\''") + "'" }),
         });
         contentEl.textContent = await res.text();
         status(path);
@@ -337,13 +337,14 @@
 
         evtSource.addEventListener("file_updated", (e) => {
           const { contributor, path } = JSON.parse(e.data);
+          const fullPath = contributor + "/" + path;
           scheduleContributorReload(contributor);
           // If this file is currently open, reload its content
-          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
+          if (localStorage.getItem("sv-file") === fullPath && localStorage.getItem("sv-contributor") === contributor) {
             api("/v1/sh", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ cmd: "cat '" + contributor + "/" + path.replace(/'/g, "'\\''") + "'" }),
+              body: JSON.stringify({ cmd: "cat '" + fullPath.replace(/'/g, "'\\''") + "'" }),
             })
               .then((res) => res.text())
               .then((text) => { contentEl.textContent = text; });
@@ -352,11 +353,12 @@
 
         evtSource.addEventListener("file_deleted", (e) => {
           const { contributor, path } = JSON.parse(e.data);
+          const fullPath = contributor + "/" + path;
           scheduleContributorReload(contributor);
           // If this file was being viewed, clear the content
-          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
+          if (localStorage.getItem("sv-file") === fullPath && localStorage.getItem("sv-contributor") === contributor) {
             contentEl.textContent = "";
-            status("File deleted: " + path);
+            status("File deleted: " + fullPath);
           }
         });
 
