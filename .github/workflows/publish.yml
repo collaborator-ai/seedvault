@@ -48,6 +48,7 @@ jobs:
         if: steps.cli.outputs.changed == 'true'
         working-directory: cli
         run: |
+          bun install
           bun run build
           npm publish --provenance --access public
 
@@ -55,5 +56,6 @@ jobs:
         if: steps.server.outputs.changed == 'true'
         working-directory: server
         run: |
+          bun install
           bun run build
           npm publish --provenance --access public
