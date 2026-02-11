@@ -27,6 +27,11 @@ export class Syncer {
     this.queue = new RetryQueue(opts.client, opts.onLog);
   }
 
+  /** Update the active collections set used for whole-collection syncs. */
+  setCollections(collections: CollectionConfig[]): void {
+    this.collections = [...collections];
+  }
+
   /**
    * Initial sync: compare local files against what's on the server,
    * PUT anything that's newer or missing, and DELETE files that
@@ -37,94 +42,143 @@ export class Syncer {
     let skipped = 0;
     let deleted = 0;
 
-    for (const collection of this.collections) {
-      let collectionUploaded = 0;
-      let collectionSkipped = 0;
-      let collectionDeleted = 0;
-
-      this.log(`Syncing '${collection.name}' (${collection.path})...`);
-
-      try {
-        // Get server file listing for this collection's prefix
-        const { files: serverFiles } = await this.client.listFiles(
-          this.contributorId,
-          collection.name + "/"
-        );
-
-        // Build a map of server files by path -> modifiedAt
-        const serverMap = new Map<string, string>();
-        for (const f of serverFiles) {
-          serverMap.set(f.path, f.modifiedAt);
-        }
-
-        // Walk local directory for .md files
-        const localFiles = await walkMd(collection.path);
-        const localServerPaths = new Set<string>();
-
-        for (const localFile of localFiles) {
-          const relPath = toPosixPath(relative(collection.path, localFile.path));
-          const serverPath = `${collection.name}/${relPath}`;
-          localServerPaths.add(serverPath);
-
-          const serverMod = serverMap.get(serverPath);
-          if (serverMod) {
-            // File exists on server — compare mtime
-            const serverDate = new Date(serverMod).getTime();
-            const localDate = localFile.mtimeMs;
-            if (localDate <= serverDate) {
-              skipped++;
-              collectionSkipped++;
-              continue;
-            }
-          }
-
-          // Upload
-          const content = await readFile(localFile.path, "utf-8");
-          try {
-            await this.client.putFile(this.contributorId, serverPath, content);
-            uploaded++;
-            collectionUploaded++;
-          } catch {
-            // If server unreachable, queue it
-            this.queue.enqueue({
-              type: "put",
-              contributorId: this.contributorId,
-              serverPath,
-              content,
-              queuedAt: new Date().toISOString(),
-            });
-          }
-        }
-
-        // Delete server files that no longer exist locally
-        for (const f of serverFiles) {
-          if (localServerPaths.has(f.path)) continue;
-
-          try {
-            await this.client.deleteFile(this.contributorId, f.path);
-            deleted++;
-            collectionDeleted++;
-          } catch {
-            // If server unreachable, queue it
-            this.queue.enqueue({
-              type: "delete",
-              contributorId: this.contributorId,
-              serverPath: f.path,
-              content: null,
-              queuedAt: new Date().toISOString(),
-            });
-          }
-        }
-
-        this.log(
-          `  '${collection.name}': ${collectionUploaded} uploaded, ${collectionSkipped} up-to-date, ${collectionDeleted} deleted`
-        );
-      } catch (e: unknown) {
-        this.log(`  '${collection.name}': sync failed (${(e as Error).message})`);
-      }
+    for (const collection of [...this.collections]) {
+      const result = await this.syncCollection(collection);
+      uploaded += result.uploaded;
+      skipped += result.skipped;
+      deleted += result.deleted;
     }
 
     return { uploaded, skipped, deleted };
+  }
+
+  /**
+   * Sync a single collection.
+   */
+  async syncCollection(collection: CollectionConfig): Promise<{ uploaded: number; skipped: number; deleted: number }> {
+    let uploaded = 0;
+    let skipped = 0;
+    let deleted = 0;
+
+    this.log(`Syncing '${collection.name}' (${collection.path})...`);
+
+    try {
+      // Get server file listing for this collection's prefix
+      const { files: serverFiles } = await this.client.listFiles(
+        this.contributorId,
+        collection.name + "/"
+      );
+
+      // Build a map of server files by path -> modifiedAt
+      const serverMap = new Map<string, string>();
+      for (const f of serverFiles) {
+        serverMap.set(f.path, f.modifiedAt);
+      }
+
+      // Walk local directory for .md files
+      const localFiles = await walkMd(collection.path);
+      const localServerPaths = new Set<string>();
+
+      for (const localFile of localFiles) {
+        const relPath = toPosixPath(relative(collection.path, localFile.path));
+        const serverPath = `${collection.name}/${relPath}`;
+        localServerPaths.add(serverPath);
+
+        const serverMod = serverMap.get(serverPath);
+        if (serverMod) {
+          // File exists on server — compare mtime
+          const serverDate = new Date(serverMod).getTime();
+          const localDate = localFile.mtimeMs;
+          if (localDate <= serverDate) {
+            skipped++;
+            continue;
+          }
+        }
+
+        // Upload
+        const content = await readFile(localFile.path, "utf-8");
+        try {
+          await this.client.putFile(this.contributorId, serverPath, content);
+          uploaded++;
+        } catch {
+          // If server unreachable, queue it
+          this.queue.enqueue({
+            type: "put",
+            contributorId: this.contributorId,
+            serverPath,
+            content,
+            queuedAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      // Delete server files that no longer exist locally
+      for (const f of serverFiles) {
+        if (localServerPaths.has(f.path)) continue;
+
+        try {
+          await this.client.deleteFile(this.contributorId, f.path);
+          deleted++;
+        } catch {
+          // If server unreachable, queue it
+          this.queue.enqueue({
+            type: "delete",
+            contributorId: this.contributorId,
+            serverPath: f.path,
+            content: null,
+            queuedAt: new Date().toISOString(),
+          });
+        }
+      }
+
+      this.log(
+        `  '${collection.name}': ${uploaded} uploaded, ${skipped} up-to-date, ${deleted} deleted`
+      );
+    } catch (e: unknown) {
+      this.log(`  '${collection.name}': sync failed (${(e as Error).message})`);
+    }
+
+    return { uploaded, skipped, deleted };
+  }
+
+  /**
+   * Remove all remote files under a collection prefix.
+   * Used when a collection is removed from config while the daemon is running.
+   */
+  async purgeCollection(collection: CollectionConfig): Promise<{ deleted: number; queued: number }> {
+    let deleted = 0;
+    let queued = 0;
+
+    this.log(`Removing '${collection.name}' files from server...`);
+
+    try {
+      const { files: serverFiles } = await this.client.listFiles(
+        this.contributorId,
+        collection.name + "/"
+      );
+
+      for (const f of serverFiles) {
+        try {
+          await this.client.deleteFile(this.contributorId, f.path);
+          deleted++;
+        } catch {
+          this.queue.enqueue({
+            type: "delete",
+            contributorId: this.contributorId,
+            serverPath: f.path,
+            content: null,
+            queuedAt: new Date().toISOString(),
+          });
+          queued++;
+        }
+      }
+
+      this.log(`  '${collection.name}': ${deleted} deleted, ${queued} queued`);
+    } catch (e: unknown) {
+      this.log(`  '${collection.name}': remove failed (${(e as Error).message})`);
+    }
+
+    return { deleted, queued };
   }
 
   /**
@@ -153,7 +207,7 @@ export class Syncer {
     }
   }
 
-  /** Stop the queue (persist pending ops) */
+  /** Stop retry timers. Pending ops remain in memory for process lifetime only. */
   stop(): void {
     this.queue.stop();
   }

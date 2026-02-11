@@ -33,11 +33,18 @@ export async function add(args: string[]): Promise<void> {
   const config = loadConfig();
 
   try {
-    const updated = addCollection(config, absPath, name);
+    const result = addCollection(config, absPath, name);
+    const updated = result.config;
     saveConfig(updated);
     console.log(`Added collection: ${absPath}`);
     console.log(`  Name: ${name}`);
     console.log(`  Files will sync to: ${name}/<relative-path>`);
+    if (result.removedChildCollections.length > 0) {
+      console.log("  Removed overlapping child collections:");
+      for (const child of result.removedChildCollections) {
+        console.log(`    - ${child.name} (${child.path})`);
+      }
+    }
   } catch (e: unknown) {
     console.error((e as Error).message);
     process.exit(1);
