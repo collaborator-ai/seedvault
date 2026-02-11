@@ -1,24 +1,24 @@
 import { existsSync } from "fs";
 import { resolve } from "path";
 import { homedir } from "os";
-import { loadConfig, saveConfig, addFolder, defaultLabel } from "../config.js";
+import { loadConfig, saveConfig, addCollection, defaultCollectionName } from "../config.js";
 
 /**
- * sv add <folder> [--label <label>]
+ * sv add <path> [--name <name>]
  *
- * Watch a folder. Label defaults to the folder's basename.
+ * Add a collection path to sync. Name defaults to the path basename.
  */
 export async function add(args: string[]): Promise<void> {
   if (args.length === 0 || args[0].startsWith("--")) {
-    console.error("Usage: sv add <folder> [--label <label>]");
+    console.error("Usage: sv add <path> [--name <name>]");
     process.exit(1);
   }
 
   const rawPath = args[0];
-  const labelIdx = args.indexOf("--label");
-  const label = labelIdx !== -1 && args[labelIdx + 1]
-    ? args[labelIdx + 1]
-    : defaultLabel(rawPath);
+  const nameIdx = args.indexOf("--name");
+  const name = nameIdx !== -1 && args[nameIdx + 1]
+    ? args[nameIdx + 1]
+    : defaultCollectionName(rawPath);
 
   // Resolve path
   const absPath = rawPath.startsWith("~")
@@ -33,11 +33,11 @@ export async function add(args: string[]): Promise<void> {
   const config = loadConfig();
 
   try {
-    const updated = addFolder(config, absPath, label);
+    const updated = addCollection(config, absPath, name);
     saveConfig(updated);
-    console.log(`Added folder: ${absPath}`);
-    console.log(`  Label: ${label}`);
-    console.log(`  Files will sync to: ${label}/<relative-path>`);
+    console.log(`Added collection: ${absPath}`);
+    console.log(`  Name: ${name}`);
+    console.log(`  Files will sync to: ${name}/<relative-path>`);
   } catch (e: unknown) {
     console.error((e as Error).message);
     process.exit(1);

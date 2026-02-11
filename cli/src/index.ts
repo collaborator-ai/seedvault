@@ -3,13 +3,13 @@
 import { init } from "./commands/init.js";
 import { add } from "./commands/add.js";
 import { remove } from "./commands/remove.js";
-import { folders } from "./commands/folders.js";
+import { collections } from "./commands/collections.js";
 import { start } from "./commands/start.js";
 import { stop } from "./commands/stop.js";
 import { status } from "./commands/status.js";
 import { ls } from "./commands/ls.js";
 import { cat } from "./commands/cat.js";
-import { banks } from "./commands/banks.js";
+import { contributors } from "./commands/contributors.js";
 import { invite } from "./commands/invite.js";
 
 const USAGE = `
@@ -22,10 +22,10 @@ Setup:
   init --server URL --token T   Non-interactive (existing token)
   init --server URL --name N    Non-interactive (signup)
 
-Folders:
-  add <folder> [--label L]      Watch a folder
-  remove <label>                Stop watching a folder
-  folders                       List configured folders
+Collections:
+  add <path> [--name N]         Add a collection path
+  remove <name>                 Remove a collection by name
+  collections                   List configured collections
 
 Daemon:
   start                         Start syncing (foreground)
@@ -34,11 +34,11 @@ Daemon:
   status                        Show sync status
 
 Files:
-  ls [prefix]                   List files in your bank
+  ls [prefix]                   List files in your contributor
   cat <path>                    Read a file from the server
 
 Vault:
-  banks                         List all banks
+  contributors                  List all contributors
   invite                        Generate an invite code (operator only)
 `.trim();
 
@@ -58,8 +58,8 @@ async function main(): Promise<void> {
         return await add(args);
       case "remove":
         return await remove(args);
-      case "folders":
-        return await folders();
+      case "collections":
+        return await collections();
       case "start":
         return await start(args);
       case "stop":
@@ -70,8 +70,8 @@ async function main(): Promise<void> {
         return await ls(args);
       case "cat":
         return await cat(args);
-      case "banks":
-        return await banks();
+      case "contributors":
+        return await contributors();
       case "invite":
         return await invite();
       default:

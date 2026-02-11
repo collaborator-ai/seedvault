@@ -38,20 +38,20 @@ export function validatePath(filePath: string): string | null {
 }
 
 /** Resolve a validated file path to an absolute path on disk */
-function resolvePath(storageRoot: string, bankId: string, filePath: string): string {
-  return join(storageRoot, bankId, filePath);
+function resolvePath(storageRoot: string, contributorId: string, filePath: string): string {
+  return join(storageRoot, contributorId, filePath);
 }
 
-/** Ensure the bank directory exists */
-export async function ensureBankDir(storageRoot: string, bankId: string): Promise<void> {
-  const dir = join(storageRoot, bankId);
+/** Ensure the contributor directory exists */
+export async function ensureContributorDir(storageRoot: string, contributorId: string): Promise<void> {
+  const dir = join(storageRoot, contributorId);
   await mkdir(dir, { recursive: true });
 }
 
 /** Write a file atomically (temp file + rename) */
 export async function writeFileAtomic(
   storageRoot: string,
-  bankId: string,
+  contributorId: string,
   filePath: string,
   content: string | Buffer
 ): Promise<{ path: string; size: number; modifiedAt: string }> {
@@ -61,7 +61,7 @@ export async function writeFileAtomic(
     throw new FileTooLargeError(contentBuf.length);
   }
 
-  const absPath = resolvePath(storageRoot, bankId, filePath);
+  const absPath = resolvePath(storageRoot, contributorId, filePath);
   const dir = dirname(absPath);
   await mkdir(dir, { recursive: true });
 
@@ -87,10 +87,10 @@ export async function writeFileAtomic(
 /** Delete a file and clean up empty parent directories */
 export async function deleteFile(
   storageRoot: string,
-  bankId: string,
+  contributorId: string,
   filePath: string
 ): Promise<void> {
-  const absPath = resolvePath(storageRoot, bankId, filePath);
+  const absPath = resolvePath(storageRoot, contributorId, filePath);
 
   if (!existsSync(absPath)) {
     throw new FileNotFoundError(filePath);
@@ -98,10 +98,10 @@ export async function deleteFile(
 
   await unlink(absPath);
 
-  // Clean up empty parent directories up to the bank root
-  const bankRoot = join(storageRoot, bankId);
+  // Clean up empty parent directories up to the contributor root
+  const contributorRoot = join(storageRoot, contributorId);
   let dir = dirname(absPath);
-  while (dir !== bankRoot && dir.startsWith(bankRoot)) {
+  while (dir !== contributorRoot && dir.startsWith(contributorRoot)) {
     try {
       await rmdir(dir); // only succeeds if empty
       dir = dirname(dir);
@@ -114,10 +114,10 @@ export async function deleteFile(
 /** Read a file's content */
 export async function readFileContent(
   storageRoot: string,
-  bankId: string,
+  contributorId: string,
   filePath: string
 ): Promise<string> {
-  const absPath = resolvePath(storageRoot, bankId, filePath);
+  const absPath = resolvePath(storageRoot, contributorId, filePath);
 
   if (!existsSync(absPath)) {
     throw new FileNotFoundError(filePath);
@@ -132,20 +132,20 @@ export interface FileEntry {
   modifiedAt: string;
 }
 
-/** List all files in a bank, optionally filtered by prefix */
+/** List all files in a contributor, optionally filtered by prefix */
 export async function listFiles(
   storageRoot: string,
-  bankId: string,
+  contributorId: string,
   prefix?: string
 ): Promise<FileEntry[]> {
-  const bankRoot = join(storageRoot, bankId);
+  const contributorRoot = join(storageRoot, contributorId);
 
-  if (!existsSync(bankRoot)) {
+  if (!existsSync(contributorRoot)) {
     return [];
   }
 
   const files: FileEntry[] = [];
-  await walkDir(bankRoot, bankRoot, prefix, files);
+  await walkDir(contributorRoot, contributorRoot, prefix, files);
 
   // Sort by modification time, newest first
   files.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt));
@@ -154,7 +154,7 @@ export async function listFiles(
 
 async function walkDir(
   dir: string,
-  bankRoot: string,
+  contributorRoot: string,
   prefix: string | undefined,
   results: FileEntry[]
 ): Promise<void> {
@@ -170,9 +170,9 @@ async function walkDir(
     const fullPath = join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      await walkDir(fullPath, bankRoot, prefix, results);
+      await walkDir(fullPath, contributorRoot, prefix, results);
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      const relPath = relative(bankRoot, fullPath).split(sep).join("/");
+      const relPath = relative(contributorRoot, fullPath).split(sep).join("/");
 
       if (prefix && !relPath.startsWith(prefix)) {
         continue;

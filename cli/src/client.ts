@@ -7,16 +7,16 @@ export interface SeedvaultClient {
   signup(name: string, invite?: string): Promise<SignupResponse>;
   /** POST /v1/invites */
   createInvite(): Promise<InviteResponse>;
-  /** GET /v1/banks */
-  listBanks(): Promise<BanksResponse>;
-  /** PUT /v1/banks/:bankId/files/* */
-  putFile(bankId: string, path: string, content: string): Promise<FileWriteResponse>;
-  /** DELETE /v1/banks/:bankId/files/* */
-  deleteFile(bankId: string, path: string): Promise<void>;
-  /** GET /v1/banks/:bankId/files */
-  listFiles(bankId: string, prefix?: string): Promise<FilesResponse>;
-  /** GET /v1/banks/:bankId/files/* */
-  getFile(bankId: string, path: string): Promise<string>;
+  /** GET /v1/contributors */
+  listContributors(): Promise<ContributorsResponse>;
+  /** PUT /v1/contributors/:contributorId/files/* */
+  putFile(contributorId: string, path: string, content: string): Promise<FileWriteResponse>;
+  /** DELETE /v1/contributors/:contributorId/files/* */
+  deleteFile(contributorId: string, path: string): Promise<void>;
+  /** GET /v1/contributors/:contributorId/files */
+  listFiles(contributorId: string, prefix?: string): Promise<FilesResponse>;
+  /** GET /v1/contributors/:contributorId/files/* */
+  getFile(contributorId: string, path: string): Promise<string>;
   /** GET /health */
   health(): Promise<HealthResponse>;
 }
@@ -24,7 +24,7 @@ export interface SeedvaultClient {
 // --- Response types ---
 
 export interface SignupResponse {
-  bank: { id: string; name: string; createdAt: string };
+  contributor: { id: string; name: string; createdAt: string };
   token: string;
 }
 
@@ -33,8 +33,8 @@ export interface InviteResponse {
   createdAt: string;
 }
 
-export interface BanksResponse {
-  banks: Array<{ id: string; name: string; createdAt: string }>;
+export interface ContributorsResponse {
+  contributors: Array<{ id: string; name: string; createdAt: string }>;
 }
 
 export interface FileWriteResponse {
@@ -128,31 +128,31 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
       return res.json();
     },
 
-    async listBanks(): Promise<BanksResponse> {
-      const res = await request("GET", "/v1/banks");
+    async listContributors(): Promise<ContributorsResponse> {
+      const res = await request("GET", "/v1/contributors");
       return res.json();
     },
 
-    async putFile(bankId: string, path: string, content: string): Promise<FileWriteResponse> {
-      const res = await request("PUT", `/v1/banks/${bankId}/files/${encodePath(path)}`, {
+    async putFile(contributorId: string, path: string, content: string): Promise<FileWriteResponse> {
+      const res = await request("PUT", `/v1/contributors/${contributorId}/files/${encodePath(path)}`, {
         body: content,
         contentType: "text/markdown",
       });
       return res.json();
     },
 
-    async deleteFile(bankId: string, path: string): Promise<void> {
-      await request("DELETE", `/v1/banks/${bankId}/files/${encodePath(path)}`);
+    async deleteFile(contributorId: string, path: string): Promise<void> {
+      await request("DELETE", `/v1/contributors/${contributorId}/files/${encodePath(path)}`);
     },
 
-    async listFiles(bankId: string, prefix?: string): Promise<FilesResponse> {
+    async listFiles(contributorId: string, prefix?: string): Promise<FilesResponse> {
       const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
-      const res = await request("GET", `/v1/banks/${bankId}/files${qs}`);
+      const res = await request("GET", `/v1/contributors/${contributorId}/files${qs}`);
       return res.json();
     },
 
-    async getFile(bankId: string, path: string): Promise<string> {
-      const res = await request("GET", `/v1/banks/${bankId}/files/${encodePath(path)}`);
+    async getFile(contributorId: string, path: string): Promise<string> {
+      const res = await request("GET", `/v1/contributors/${contributorId}/files/${encodePath(path)}`);
       return res.text();
     },
 

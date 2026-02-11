@@ -19,7 +19,7 @@ export async function status(): Promise<void> {
 
   // Config
   console.log(`  Server:  ${config.server}`);
-  console.log(`  Bank:    ${config.bankId}`);
+  console.log(`  Contributor: ${config.contributorId}`);
 
   // Daemon
   const pidPath = getPidPath();
@@ -40,13 +40,13 @@ export async function status(): Promise<void> {
     console.log("  Daemon:  not running");
   }
 
-  // Folders
-  if (config.folders.length === 0) {
-    console.log("  Folders: none configured");
+  // Collections
+  if (config.collections.length === 0) {
+    console.log("  Collections: none configured");
   } else {
-    console.log(`  Folders: ${config.folders.length}`);
-    for (const f of config.folders) {
-      console.log(`    - ${f.label} -> ${f.path}`);
+    console.log(`  Collections: ${config.collections.length}`);
+    for (const f of config.collections) {
+      console.log(`    - ${f.name} -> ${f.path}`);
     }
   }
 

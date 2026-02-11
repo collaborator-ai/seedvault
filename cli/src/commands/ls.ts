@@ -4,17 +4,17 @@ import { createClient } from "../client.js";
 /**
  * sv ls [prefix]
  *
- * List files in your bank, optionally filtered by prefix.
+ * List files in your contributor, optionally filtered by prefix.
  */
 export async function ls(args: string[]): Promise<void> {
   const config = loadConfig();
   const client = createClient(config.server, config.token);
   const prefix = args[0] || undefined;
 
-  const { files } = await client.listFiles(config.bankId, prefix);
+  const { files } = await client.listFiles(config.contributorId, prefix);
 
   if (files.length === 0) {
-    console.log(prefix ? `No files matching '${prefix}'.` : "No files in your bank.");
+    console.log(prefix ? `No files matching '${prefix}'.` : "No files in your contributor.");
     return;
   }
 

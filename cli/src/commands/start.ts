@@ -24,8 +24,8 @@ export async function start(args: string[]): Promise<void> {
 async function startForeground(): Promise<void> {
   const config = loadConfig();
 
-  if (config.folders.length === 0) {
-    console.error("No folders configured. Run 'sv add <folder>' first.");
+  if (config.collections.length === 0) {
+    console.error("No collections configured. Run 'sv add <path>' first.");
     process.exit(1);
   }
 
@@ -46,16 +46,16 @@ async function startForeground(): Promise<void> {
 
   log("Seedvault daemon starting...");
   log(`  Server:  ${config.server}`);
-  log(`  Bank:    ${config.bankId}`);
-  log(`  Folders: ${config.folders.map((f) => f.label).join(", ")}`);
+  log(`  Contributor: ${config.contributorId}`);
+  log(`  Collections: ${config.collections.map((f) => f.name).join(", ")}`);
 
   // Write PID file (useful for sv status / sv stop even in foreground)
   writeFileSync(getPidPath(), String(process.pid));
 
   const syncer = new Syncer({
     client,
-    bankId: config.bankId,
-    folders: config.folders,
+    contributorId: config.contributorId,
+    collections: config.collections,
     onLog: log,
   });
 
@@ -70,7 +70,7 @@ async function startForeground(): Promise<void> {
   }
 
   // Start watching
-  const watcher = createWatcher(config.folders, (event) => {
+  const watcher = createWatcher(config.collections, (event) => {
     syncer.handleEvent(event).catch((e) => {
       log(`Error handling ${event.type} for ${event.serverPath}: ${(e as Error).message}`);
     });
@@ -101,8 +101,8 @@ async function startForeground(): Promise<void> {
 async function startBackground(): Promise<void> {
   const config = loadConfig();
 
-  if (config.folders.length === 0) {
-    console.error("No folders configured. Run 'sv add <folder>' first.");
+  if (config.collections.length === 0) {
+    console.error("No collections configured. Run 'sv add <path>' first.");
     process.exit(1);
   }
 

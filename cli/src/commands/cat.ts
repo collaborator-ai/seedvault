@@ -17,7 +17,7 @@ export async function cat(args: string[]): Promise<void> {
   const client = createClient(config.server, config.token);
 
   try {
-    const content = await client.getFile(config.bankId, filePath);
+    const content = await client.getFile(config.contributorId, filePath);
     process.stdout.write(content);
   } catch (e) {
     if (e instanceof ApiError && e.status === 404) {

@@ -31,27 +31,25 @@ export async function init(args: string[]): Promise<void> {
       process.exit(1);
     }
 
-    // Get bank info from server
-    const { banks } = await client.listBanks();
-    // We don't know which bank this token belongs to without trying.
-    // For now, save without bankId — the first PUT will tell us.
-    // Actually, let's require --bank-id or try to infer it.
-    const bankId = flags["bank-id"] || "";
-    if (!bankId) {
-      console.error("When using --token, also pass --bank-id");
+    // We don't know which contributor this token belongs to without trying.
+    // For now, save without contributorId — the first PUT will tell us.
+    // Actually, let's require --contributor-id or try to infer it.
+    const contributorId = flags["contributor-id"] || "";
+    if (!contributorId) {
+      console.error("When using --token, also pass --contributor-id");
       process.exit(1);
     }
 
     const config: Config = {
       server: flags.server,
       token: flags.token,
-      bankId,
-      folders: [],
+      contributorId,
+      collections: [],
     };
     saveConfig(config);
     console.log("Seedvault configured.");
     console.log(`  Server:  ${config.server}`);
-    console.log(`  Bank ID: ${config.bankId}`);
+    console.log(`  Contributor ID: ${config.contributorId}`);
     return;
   }
 
@@ -69,13 +67,13 @@ export async function init(args: string[]): Promise<void> {
     const config: Config = {
       server: flags.server,
       token: result.token,
-      bankId: result.bank.id,
-      folders: [],
+      contributorId: result.contributor.id,
+      collections: [],
     };
     saveConfig(config);
     console.log("Signed up and configured.");
     console.log(`  Server:  ${config.server}`);
-    console.log(`  Bank:    ${result.bank.name} (${result.bank.id})`);
+    console.log(`  Contributor: ${result.contributor.name} (${result.contributor.id})`);
     console.log(`  Token:   ${result.token}`);
     return;
   }
@@ -106,30 +104,30 @@ export async function init(args: string[]): Promise<void> {
 
     if (hasToken.toLowerCase() === "y") {
       const token = await rl.question("Token: ");
-      const bankId = await rl.question("Bank ID: ");
-      const config: Config = { server, token: token.trim(), bankId: bankId.trim(), folders: [] };
+      const contributorId = await rl.question("Contributor ID: ");
+      const config: Config = { server, token: token.trim(), contributorId: contributorId.trim(), collections: [] };
       saveConfig(config);
       console.log("\nSeedvault configured.");
     } else {
-      const name = await rl.question("Bank name (e.g. your-name-notes): ");
+      const name = await rl.question("Contributor name (e.g. your-name-notes): ");
       const invite = await rl.question("Invite code (leave blank if first user): ");
 
       const result = await client.signup(name.trim(), invite.trim() || undefined);
       const config: Config = {
         server,
         token: result.token,
-        bankId: result.bank.id,
-        folders: [],
+        contributorId: result.contributor.id,
+        collections: [],
       };
       saveConfig(config);
-      console.log(`\nSigned up as '${result.bank.name}'.`);
-      console.log(`  Bank ID: ${result.bank.id}`);
+      console.log(`\nSigned up as '${result.contributor.name}'.`);
+      console.log(`  Contributor ID: ${result.contributor.id}`);
       console.log(`  Token:   ${result.token}`);
       console.log("\nSave your token — it won't be shown again.");
     }
 
     console.log("\nNext steps:");
-    console.log("  sv add ~/notes         # Add a folder to sync");
+    console.log("  sv add ~/notes         # Add a collection to sync");
     console.log("  sv start               # Start the daemon");
   } finally {
     rl.close();

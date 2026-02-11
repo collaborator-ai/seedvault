@@ -2,15 +2,15 @@ import { Hono } from "hono";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import {
-	createBank,
+	createContributor,
 	createApiKey,
 	createInvite,
 	getInvite,
 	markInviteUsed,
-	getBankById,
-	getBankByName,
-	hasAnyBank,
-	listBanks,
+	getContributorById,
+	getContributorByName,
+	hasAnyContributor,
+	listContributors,
 } from "./db.js";
 import {
 	generateToken,
@@ -24,7 +24,7 @@ import {
 	deleteFile,
 	readFileContent,
 	listFiles,
-	ensureBankDir,
+	ensureContributorDir,
 	FileNotFoundError,
 	FileTooLargeError,
 } from "./storage.js";
@@ -36,8 +36,8 @@ const isDev = process.env.NODE_ENV !== "production";
 const uiHtmlCached = readFileSync(uiPath, "utf-8");
 
 /** Extract and decode the file path from a wildcard route */
-function extractFilePath(reqPath: string, bankId: string): string | null {
-	const raw = reqPath.replace(`/v1/banks/${bankId}/files/`, "");
+function extractFilePath(reqPath: string, contributorId: string): string | null {
+	const raw = reqPath.replace(`/v1/contributors/${contributorId}/files/`, "");
 	try {
 		return decodeURIComponent(raw);
 	} catch {
@@ -68,7 +68,7 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		const name = body.name.trim();
-		const isFirstUser = !hasAnyBank();
+		const isFirstUser = !hasAnyContributor();
 
 		// Validate invite (required unless first user)
 		if (!isFirstUser) {
@@ -85,34 +85,34 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		// Check name uniqueness
-		if (getBankByName(name)) {
-			return c.json({ error: "A bank with that name already exists" }, 409);
+		if (getContributorByName(name)) {
+			return c.json({ error: "A contributor with that name already exists" }, 409);
 		}
 
-		// Create bank
-		const bank = createBank(name, isFirstUser);
-		await ensureBankDir(storageRoot, bank.id);
+		// Create contributor
+		const contributor = createContributor(name, isFirstUser);
+		await ensureContributorDir(storageRoot, contributor.id);
 
 		// Register as QMD collection
-		qmd.addCollection(storageRoot, bank).catch((e) =>
+		qmd.addCollection(storageRoot, contributor).catch((e) =>
 			console.error("Failed to register QMD collection:", e)
 		);
 
 		// Create token
 		const rawToken = generateToken();
-		createApiKey(hashToken(rawToken), `${name}-default`, bank.id);
+		createApiKey(hashToken(rawToken), `${name}-default`, contributor.id);
 
 		// Mark invite as used
 		if (!isFirstUser && body.invite) {
-			markInviteUsed(body.invite, bank.id);
+			markInviteUsed(body.invite, contributor.id);
 		}
 
 		return c.json(
 			{
-				bank: {
-					id: bank.id,
-					name: bank.name,
-					createdAt: bank.created_at,
+				contributor: {
+					id: contributor.id,
+					name: contributor.name,
+					createdAt: contributor.created_at,
 				},
 				token: rawToken,
 			},
@@ -128,13 +128,13 @@ export function createApp(storageRoot: string): Hono {
 	// --- Invites ---
 
 	authed.post("/v1/invites", (c) => {
-		const { bank } = getAuthCtx(c);
+		const { contributor } = getAuthCtx(c);
 
-		if (!bank.is_operator) {
+		if (!contributor.is_operator) {
 			return c.json({ error: "Only the operator can generate invite codes" }, 403);
 		}
 
-		const invite = createInvite(bank.id);
+		const invite = createInvite(contributor.id);
 		return c.json(
 			{
 				invite: invite.id,
@@ -144,12 +144,12 @@ export function createApp(storageRoot: string): Hono {
 		);
 	});
 
-	// --- Banks ---
+	// --- Contributors ---
 
-	authed.get("/v1/banks", (c) => {
-		const banks = listBanks();
+	authed.get("/v1/contributors", (c) => {
+		const contributors = listContributors();
 		return c.json({
-			banks: banks.map((b) => ({
+			contributors: contributors.map((b) => ({
 				id: b.id,
 				name: b.name,
 				createdAt: b.created_at,
@@ -159,20 +159,20 @@ export function createApp(storageRoot: string): Hono {
 
 	// --- File Write ---
 
-	authed.put("/v1/banks/:bankId/files/*", async (c) => {
-		const { bank } = getAuthCtx(c);
-		const bankId = c.req.param("bankId");
+	authed.put("/v1/contributors/:contributorId/files/*", async (c) => {
+		const { contributor } = getAuthCtx(c);
+		const contributorId = c.req.param("contributorId");
 
-		if (bank.id !== bankId) {
-			return c.json({ error: "You can only write to your own bank" }, 403);
+		if (contributor.id !== contributorId) {
+			return c.json({ error: "You can only write to your own contributor" }, 403);
 		}
 
-		// Verify bank exists
-		if (!getBankById(bankId)) {
-			return c.json({ error: "Bank not found" }, 404);
+		// Verify contributor exists
+		if (!getContributorById(contributorId)) {
+			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const filePath = extractFilePath(c.req.path, bankId);
+		const filePath = extractFilePath(c.req.path, contributorId);
 		if (filePath === null) {
 			return c.json({ error: "Invalid URL encoding in path" }, 400);
 		}
@@ -184,10 +184,10 @@ export function createApp(storageRoot: string): Hono {
 		const content = await c.req.text();
 
 		try {
-			const result = await writeFileAtomic(storageRoot, bankId, filePath, content);
+			const result = await writeFileAtomic(storageRoot, contributorId, filePath, content);
 
 			broadcast("file_updated", {
-				bank: bankId,
+				contributor: contributorId,
 				path: result.path,
 				size: result.size,
 				modifiedAt: result.modifiedAt,
@@ -207,15 +207,15 @@ export function createApp(storageRoot: string): Hono {
 
 	// --- File Delete ---
 
-	authed.delete("/v1/banks/:bankId/files/*", async (c) => {
-		const { bank } = getAuthCtx(c);
-		const bankId = c.req.param("bankId");
+	authed.delete("/v1/contributors/:contributorId/files/*", async (c) => {
+		const { contributor } = getAuthCtx(c);
+		const contributorId = c.req.param("contributorId");
 
-		if (bank.id !== bankId) {
-			return c.json({ error: "You can only delete from your own bank" }, 403);
+		if (contributor.id !== contributorId) {
+			return c.json({ error: "You can only delete from your own contributor" }, 403);
 		}
 
-		const filePath = extractFilePath(c.req.path, bankId);
+		const filePath = extractFilePath(c.req.path, contributorId);
 		if (filePath === null) {
 			return c.json({ error: "Invalid URL encoding in path" }, 400);
 		}
@@ -225,10 +225,10 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		try {
-			await deleteFile(storageRoot, bankId, filePath);
+			await deleteFile(storageRoot, contributorId, filePath);
 
 			broadcast("file_deleted", {
-				bank: bankId,
+				contributor: contributorId,
 				path: filePath,
 			});
 
@@ -246,28 +246,28 @@ export function createApp(storageRoot: string): Hono {
 
 	// --- File List ---
 
-	authed.get("/v1/banks/:bankId/files", async (c) => {
-		const bankId = c.req.param("bankId");
+	authed.get("/v1/contributors/:contributorId/files", async (c) => {
+		const contributorId = c.req.param("contributorId");
 
-		if (!getBankById(bankId)) {
-			return c.json({ error: "Bank not found" }, 404);
+		if (!getContributorById(contributorId)) {
+			return c.json({ error: "Contributor not found" }, 404);
 		}
 
 		const prefix = c.req.query("prefix") || undefined;
-		const files = await listFiles(storageRoot, bankId, prefix);
+		const files = await listFiles(storageRoot, contributorId, prefix);
 		return c.json({ files });
 	});
 
 	// --- File Read ---
 
-	authed.get("/v1/banks/:bankId/files/*", async (c) => {
-		const bankId = c.req.param("bankId");
+	authed.get("/v1/contributors/:contributorId/files/*", async (c) => {
+		const contributorId = c.req.param("contributorId");
 
-		if (!getBankById(bankId)) {
-			return c.json({ error: "Bank not found" }, 404);
+		if (!getContributorById(contributorId)) {
+			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const filePath = extractFilePath(c.req.path, bankId);
+		const filePath = extractFilePath(c.req.path, contributorId);
 		if (filePath === null) {
 			return c.json({ error: "Invalid URL encoding in path" }, 400);
 		}
@@ -277,7 +277,7 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		try {
-			const content = await readFileContent(storageRoot, bankId, filePath);
+			const content = await readFileContent(storageRoot, contributorId, filePath);
 			return c.text(content, 200, {
 				"Content-Type": "text/markdown",
 			});
@@ -324,17 +324,17 @@ export function createApp(storageRoot: string): Hono {
 			return c.json({ error: "q parameter is required" }, 400);
 		}
 
-		const bankParam = c.req.query("bank") || undefined;
+		const contributorParam = c.req.query("contributor") || undefined;
 		const limit = parseInt(c.req.query("limit") || "10", 10);
 
-		// Resolve bank param (accepts bank ID or name) to QMD collection name
+		// Resolve contributor param (accepts contributor ID or name) to QMD collection name
 		let collectionName: string | undefined;
-		if (bankParam) {
-			const bank = getBankById(bankParam) ?? getBankByName(bankParam);
-			if (!bank) {
-				return c.json({ error: "Bank not found" }, 404);
+		if (contributorParam) {
+			const contributor = getContributorById(contributorParam) ?? getContributorByName(contributorParam);
+			if (!contributor) {
+				return c.json({ error: "Contributor not found" }, 404);
 			}
-			collectionName = bank.name;
+			collectionName = contributor.name;
 		}
 
 		const results = await qmd.search(q, { collection: collectionName, limit });

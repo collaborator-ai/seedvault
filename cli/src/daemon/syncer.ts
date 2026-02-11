@@ -1,28 +1,28 @@
 import { readdir, stat, readFile } from "fs/promises";
 import { join, relative } from "path";
 import type { SeedvaultClient } from "../client.js";
-import type { FolderConfig } from "../config.js";
+import type { CollectionConfig } from "../config.js";
 import type { FileEvent } from "./watcher.js";
 import { RetryQueue } from "./queue.js";
 
 export interface SyncerOptions {
   client: SeedvaultClient;
-  bankId: string;
-  folders: FolderConfig[];
+  contributorId: string;
+  collections: CollectionConfig[];
   onLog: (msg: string) => void;
 }
 
 export class Syncer {
   private client: SeedvaultClient;
-  private bankId: string;
-  private folders: FolderConfig[];
+  private contributorId: string;
+  private collections: CollectionConfig[];
   private queue: RetryQueue;
   private log: (msg: string) => void;
 
   constructor(opts: SyncerOptions) {
     this.client = opts.client;
-    this.bankId = opts.bankId;
-    this.folders = opts.folders;
+    this.contributorId = opts.contributorId;
+    this.collections = opts.collections;
     this.log = opts.onLog;
     this.queue = new RetryQueue(opts.client, opts.onLog);
   }
@@ -37,18 +37,18 @@ export class Syncer {
     let skipped = 0;
     let deleted = 0;
 
-    for (const folder of this.folders) {
-      let folderUploaded = 0;
-      let folderSkipped = 0;
-      let folderDeleted = 0;
+    for (const collection of this.collections) {
+      let collectionUploaded = 0;
+      let collectionSkipped = 0;
+      let collectionDeleted = 0;
 
-      this.log(`Syncing '${folder.label}' (${folder.path})...`);
+      this.log(`Syncing '${collection.name}' (${collection.path})...`);
 
       try {
         // Get server file listing for this collection's prefix
         const { files: serverFiles } = await this.client.listFiles(
-          this.bankId,
-          folder.label + "/"
+          this.contributorId,
+          collection.name + "/"
         );
 
         // Build a map of server files by path -> modifiedAt
@@ -58,12 +58,12 @@ export class Syncer {
         }
 
         // Walk local directory for .md files
-        const localFiles = await walkMd(folder.path);
+        const localFiles = await walkMd(collection.path);
         const localServerPaths = new Set<string>();
 
         for (const localFile of localFiles) {
-          const relPath = toPosixPath(relative(folder.path, localFile.path));
-          const serverPath = `${folder.label}/${relPath}`;
+          const relPath = toPosixPath(relative(collection.path, localFile.path));
+          const serverPath = `${collection.name}/${relPath}`;
           localServerPaths.add(serverPath);
 
           const serverMod = serverMap.get(serverPath);
@@ -73,7 +73,7 @@ export class Syncer {
             const localDate = localFile.mtimeMs;
             if (localDate <= serverDate) {
               skipped++;
-              folderSkipped++;
+              collectionSkipped++;
               continue;
             }
           }
@@ -81,14 +81,14 @@ export class Syncer {
           // Upload
           const content = await readFile(localFile.path, "utf-8");
           try {
-            await this.client.putFile(this.bankId, serverPath, content);
+            await this.client.putFile(this.contributorId, serverPath, content);
             uploaded++;
-            folderUploaded++;
+            collectionUploaded++;
           } catch {
             // If server unreachable, queue it
             this.queue.enqueue({
               type: "put",
-              bankId: this.bankId,
+              contributorId: this.contributorId,
               serverPath,
               content,
               queuedAt: new Date().toISOString(),
@@ -101,14 +101,14 @@ export class Syncer {
           if (localServerPaths.has(f.path)) continue;
 
           try {
-            await this.client.deleteFile(this.bankId, f.path);
+            await this.client.deleteFile(this.contributorId, f.path);
             deleted++;
-            folderDeleted++;
+            collectionDeleted++;
           } catch {
             // If server unreachable, queue it
             this.queue.enqueue({
               type: "delete",
-              bankId: this.bankId,
+              contributorId: this.contributorId,
               serverPath: f.path,
               content: null,
               queuedAt: new Date().toISOString(),
@@ -117,10 +117,10 @@ export class Syncer {
         }
 
         this.log(
-          `  '${folder.label}': ${folderUploaded} uploaded, ${folderSkipped} up-to-date, ${folderDeleted} deleted`
+          `  '${collection.name}': ${collectionUploaded} uploaded, ${collectionSkipped} up-to-date, ${collectionDeleted} deleted`
         );
       } catch (e: unknown) {
-        this.log(`  '${folder.label}': sync failed (${(e as Error).message})`);
+        this.log(`  '${collection.name}': sync failed (${(e as Error).message})`);
       }
     }
 
@@ -136,7 +136,7 @@ export class Syncer {
       this.log(`PUT ${event.serverPath} (${content.length} bytes)`);
       this.queue.enqueue({
         type: "put",
-        bankId: this.bankId,
+        contributorId: this.contributorId,
         serverPath: event.serverPath,
         content,
         queuedAt: new Date().toISOString(),
@@ -145,7 +145,7 @@ export class Syncer {
       this.log(`DELETE ${event.serverPath}`);
       this.queue.enqueue({
         type: "delete",
-        bankId: this.bankId,
+        contributorId: this.contributorId,
         serverPath: event.serverPath,
         content: null,
         queuedAt: new Date().toISOString(),

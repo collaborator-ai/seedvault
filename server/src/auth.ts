@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import type { Context, Next } from "hono";
-import { getApiKeyByHash, touchApiKey, getBankById, type ApiKey, type Bank } from "./db.js";
+import { getApiKeyByHash, touchApiKey, getContributorById, type ApiKey, type Contributor } from "./db.js";
 
 /** Generate a raw token string: sv_<32 random hex chars> */
 export function generateToken(): string {
@@ -24,7 +24,7 @@ function extractToken(c: Context): string | null {
 
 export interface AuthContext {
   apiKey: ApiKey;
-  bank: Bank;
+  contributor: Contributor;
 }
 
 /**
@@ -43,15 +43,15 @@ export async function authMiddleware(c: Context, next: Next) {
     return c.json({ error: "Invalid token" }, 401);
   }
 
-  const bank = getBankById(apiKey.bank_id);
-  if (!bank) {
-    return c.json({ error: "Token references a bank that no longer exists" }, 401);
+  const contributor = getContributorById(apiKey.contributor_id);
+  if (!contributor) {
+    return c.json({ error: "Token references a contributor that no longer exists" }, 401);
   }
 
   // Update last_used_at (fire and forget)
   touchApiKey(apiKey.id);
 
-  c.set("authCtx", { apiKey, bank } satisfies AuthContext);
+  c.set("authCtx", { apiKey, contributor } satisfies AuthContext);
   await next();
 }
 

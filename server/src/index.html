@@ -135,7 +135,7 @@
         return res;
       }
 
-      const savedBank = localStorage.getItem("sv-bank") || "";
+      const savedContributor = localStorage.getItem("sv-contributor") || "";
       const savedFile = localStorage.getItem("sv-file") || "";
 
       function buildTree(paths) {
@@ -152,7 +152,7 @@
         return root;
       }
 
-      function renderTree(node, parentUl, bankId, depth) {
+      function renderTree(node, parentUl, contributorId, depth) {
         const keys = Object.keys(node).filter((k) => k !== "__file").sort((a, b) => {
           const aDir = Object.keys(node[a]).some((k) => k !== "__file");
           const bDir = Object.keys(node[b]).some((k) => k !== "__file");
@@ -170,8 +170,8 @@
           if (isFile) {
             row.innerHTML = '<span class="arrow">&nbsp;</span>' + key;
             row.dataset.path = child.__file;
-            row.dataset.bank = bankId;
-            row.onclick = () => loadContent(bankId, child.__file, row);
+            row.dataset.contributor = contributorId;
+            row.onclick = () => loadContent(contributorId, child.__file, row);
           } else {
             const sub = document.createElement("ul");
             row.innerHTML = '<span class="arrow">&#9660;</span>' + key;
@@ -179,7 +179,7 @@
               sub.classList.toggle("collapsed");
               row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
             };
-            renderTree(child, sub, bankId, depth + 1);
+            renderTree(child, sub, contributorId, depth + 1);
             li.appendChild(row);
             li.appendChild(sub);
             parentUl.appendChild(li);
@@ -190,28 +190,28 @@
         }
       }
 
-      async function loadBankFiles(bankId, sub) {
+      async function loadContributorFiles(contributorId, sub) {
         sub.innerHTML = "";
         status("Loading files...");
-        const { files } = await (await api("/v1/banks/" + encodeURIComponent(bankId) + "/files")).json();
+        const { files } = await (await api("/v1/contributors/" + encodeURIComponent(contributorId) + "/files")).json();
         const tree = buildTree(files.map((f) => f.path));
-        renderTree(tree, sub, bankId, 1);
+        renderTree(tree, sub, contributorId, 1);
         status(files.length + " file(s)");
       }
 
-      async function loadBanks() {
+      async function loadContributors() {
         filesEl.innerHTML = "";
         contentEl.textContent = "";
-        status("Loading banks...");
-        const { banks } = await (await api("/v1/banks")).json();
+        status("Loading contributors...");
+        const { contributors } = await (await api("/v1/contributors")).json();
 
-        for (const b of banks) {
+        for (const b of contributors) {
           const li = document.createElement("li");
           const row = document.createElement("div");
           row.className = "tree-row";
           row.style.paddingLeft = "8px";
           const sub = document.createElement("ul");
-          sub.dataset.bank = b.id;
+          sub.dataset.contributor = b.id;
           sub.dataset.loaded = "false";
           let loaded = false;
           row.innerHTML = '<span class="arrow">&#9654;</span>' + b.name;
@@ -223,7 +223,7 @@
               if (!loaded) {
                 loaded = true;
                 sub.dataset.loaded = "true";
-                await loadBankFiles(b.id, sub);
+                await loadContributorFiles(b.id, sub);
               }
             } else {
               sub.classList.add("collapsed");
@@ -234,29 +234,29 @@
           li.appendChild(sub);
           filesEl.appendChild(li);
 
-          if (b.id === savedBank) {
+          if (b.id === savedContributor) {
             sub.classList.remove("collapsed");
             row.querySelector(".arrow").innerHTML = "&#9660;";
             loaded = true;
             sub.dataset.loaded = "true";
-            await loadBankFiles(b.id, sub);
+            await loadContributorFiles(b.id, sub);
             if (savedFile) {
               const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
               if (match) await loadContent(b.id, savedFile, match);
             }
           }
         }
-        status(banks.length + " bank(s)");
+        status(contributors.length + " contributor(s)");
       }
 
-      async function loadContent(bankId, path, row) {
+      async function loadContent(contributorId, path, row) {
         filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
         row.classList.add("active");
-        localStorage.setItem("sv-bank", bankId);
+        localStorage.setItem("sv-contributor", contributorId);
         localStorage.setItem("sv-file", path);
         status("Loading " + path + "...");
         const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-        const res = await api("/v1/banks/" + encodeURIComponent(bankId) + "/files/" + encodedPath);
+        const res = await api("/v1/contributors/" + encodeURIComponent(contributorId) + "/files/" + encodedPath);
         contentEl.textContent = await res.text();
         status(path);
       }
@@ -264,7 +264,7 @@
       $("connect").onclick = () => {
         token = tokenEl.value.trim();
         localStorage.setItem("sv-token", token);
-        loadBanks().then(() => connectSSE()).catch((e) => status(e.message));
+        loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
       };
 
       // --- SSE real-time updates ---
@@ -277,23 +277,23 @@
         evtSource = new EventSource("/v1/events?token=" + encodeURIComponent(token));
 
         evtSource.addEventListener("file_updated", (e) => {
-          const { bank, path, size, modifiedAt } = JSON.parse(e.data);
+          const { contributor, path, size, modifiedAt } = JSON.parse(e.data);
           // Add file to tree if missing
           const existing = filesEl.querySelector('[data-path="' + CSS.escape(path) + '"]');
           if (!existing) {
-            addFileToTree(bank, path);
+            addFileToTree(contributor, path);
           }
           // If this file is currently open, reload its content
-          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-bank") === bank) {
+          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
             const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-            api("/v1/banks/" + encodeURIComponent(bank) + "/files/" + encodedPath)
+            api("/v1/contributors/" + encodeURIComponent(contributor) + "/files/" + encodedPath)
               .then((res) => res.text())
               .then((text) => { contentEl.textContent = text; });
           }
         });
 
         evtSource.addEventListener("file_deleted", (e) => {
-          const { bank, path } = JSON.parse(e.data);
+          const { contributor, path } = JSON.parse(e.data);
           const row = filesEl.querySelector('[data-path="' + CSS.escape(path) + '"]');
           if (row) {
             const li = row.parentElement;
@@ -302,7 +302,7 @@
             pruneEmptyDirs(filesEl);
           }
           // If this file was being viewed, clear the content
-          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-bank") === bank) {
+          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
             contentEl.textContent = "";
             status("File deleted: " + path);
           }
@@ -314,7 +314,7 @@
       }
 
       /** Remove empty <ul> directory containers left after file deletions.
-       *  Preserves bank-level nodes (direct children of #files). */
+       *  Preserves contributor-level nodes (direct children of #files). */
       function pruneEmptyDirs(root) {
         const uls = root.querySelectorAll("ul");
         for (let i = uls.length - 1; i >= 0; i--) {
@@ -328,12 +328,12 @@
       }
 
       /** Insert a new file path into the existing tree UI */
-      function addFileToTree(bankId, path) {
-        // Update only banks whose file list has been loaded in the UI.
+      function addFileToTree(contributorId, path) {
+        // Update only contributors whose file list has been loaded in the UI.
         const targetUl = filesEl.querySelector(
-          'ul[data-bank="' + CSS.escape(bankId) + '"][data-loaded="true"]'
+          'ul[data-contributor="' + CSS.escape(contributorId) + '"][data-loaded="true"]'
         );
-        if (!targetUl) return; // bank not expanded yet, nothing to update
+        if (!targetUl) return; // contributor not expanded yet, nothing to update
 
         // Split path into segments and navigate/create tree nodes
         const parts = path.split("/");
@@ -352,8 +352,8 @@
             row.style.paddingLeft = (depth * 12 + 8) + "px";
             row.innerHTML = '<span class="arrow">&nbsp;</span>' + part;
             row.dataset.path = path;
-            row.dataset.bank = bankId;
-            row.onclick = () => loadContent(bankId, path, row);
+            row.dataset.contributor = contributorId;
+            row.onclick = () => loadContent(contributorId, path, row);
             li.appendChild(row);
             currentUl.appendChild(li);
           } else {
@@ -389,7 +389,7 @@
         }
       }
 
-      if (token) loadBanks().then(() => connectSSE()).catch((e) => status(e.message));
+      if (token) loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
 
       // Divider drag
       const divider = $("divider");

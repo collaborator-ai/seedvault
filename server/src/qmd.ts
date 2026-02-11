@@ -5,7 +5,7 @@
  * Assumes `qmd` is installed and on PATH.
  */
 
-import type { Bank } from "./db.js";
+import type { Contributor } from "./db.js";
 
 /** Check if QMD is available on PATH */
 export async function isQmdAvailable(): Promise<boolean> {
@@ -18,14 +18,14 @@ export async function isQmdAvailable(): Promise<boolean> {
   }
 }
 
-/** Register a bank as a QMD collection */
+/** Register a contributor as a QMD collection */
 export async function addCollection(
   storageRoot: string,
-  bank: Bank
+  contributor: Contributor
 ): Promise<void> {
-  const dir = `${storageRoot}/${bank.id}`;
+  const dir = `${storageRoot}/${contributor.id}`;
   const proc = Bun.spawn(
-    ["qmd", "collection", "add", dir, "--name", bank.name, "--mask", "**/*.md"],
+    ["qmd", "collection", "add", dir, "--name", contributor.name, "--mask", "**/*.md"],
     { stdout: "pipe", stderr: "pipe" }
   );
   const exitCode = await proc.exited;
@@ -33,15 +33,15 @@ export async function addCollection(
     const stderr = await new Response(proc.stderr).text();
     // Ignore "already exists" errors
     if (!stderr.includes("already exists")) {
-      console.error(`QMD collection add failed for ${bank.name}:`, stderr);
+      console.error(`QMD collection add failed for ${contributor.name}:`, stderr);
     }
   }
 }
 
-/** Remove a bank's QMD collection */
-export async function removeCollection(bankName: string): Promise<void> {
+/** Remove a contributor's QMD collection */
+export async function removeCollection(contributorName: string): Promise<void> {
   const proc = Bun.spawn(
-    ["qmd", "collection", "remove", bankName],
+    ["qmd", "collection", "remove", contributorName],
     { stdout: "pipe", stderr: "pipe" }
   );
   await proc.exited;
@@ -83,7 +83,7 @@ async function runUpdate(): Promise<void> {
 }
 
 export interface QmdSearchResult {
-  bank?: string;
+  contributor?: string;
   path: string;
   snippet: string;
   score: number;
@@ -120,13 +120,13 @@ export async function search(
 }
 
 /**
- * Register all existing banks as QMD collections on startup.
+ * Register all existing contributors as QMD collections on startup.
  */
-export async function syncCollections(
+export async function syncContributors(
   storageRoot: string,
-  banks: Bank[]
+  contributors: Contributor[]
 ): Promise<void> {
-  for (const bank of banks) {
-    await addCollection(storageRoot, bank);
+  for (const contributor of contributors) {
+    await addCollection(storageRoot, contributor);
   }
 }

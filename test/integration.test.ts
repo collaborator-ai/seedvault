@@ -23,7 +23,7 @@ import { createClient, type SeedvaultClient, ApiError } from "../cli/src/client.
 
 // Watcher module — doesn't use config.ts, safe to import statically.
 import { createWatcher, type FileEvent } from "../cli/src/daemon/watcher.js";
-import type { FolderConfig } from "../cli/src/config.js";
+import type { CollectionConfig } from "../cli/src/config.js";
 
 // NOTE: We don't import Syncer here so tests can isolate watcher behavior
 // from queue/retry behavior; we handle watcher events directly via the API.
@@ -35,39 +35,40 @@ import type { FolderConfig } from "../cli/src/config.js";
 let server: ReturnType<typeof Bun.serve>;
 let serverDataDir: string;
 let client: SeedvaultClient;
-let bankId: string;
+let contributorId: string;
+const TEST_CONTRIBUTOR_NAME = "test-contributor";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Poll until a file path appears in the bank's file listing. */
+/** Poll until a file path appears in the contributor's file listing. */
 async function waitForFile(
   cl: SeedvaultClient,
-  bId: string,
+  contributorId: string,
   path: string,
   timeoutMs = 5000
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const { files } = await cl.listFiles(bId);
+    const { files } = await cl.listFiles(contributorId);
     if (files.some((f) => f.path === path)) return;
     await Bun.sleep(100);
   }
   throw new Error(`Timed out waiting for file: ${path}`);
 }
 
-/** Poll until a file path disappears from the bank's file listing. */
+/** Poll until a file path disappears from the contributor's file listing. */
 async function waitForDelete(
   cl: SeedvaultClient,
-  bId: string,
+  contributorId: string,
   path: string,
   timeoutMs = 5000
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const { files } = await cl.listFiles(bId);
+      const { files } = await cl.listFiles(contributorId);
       if (!files.some((f) => f.path === path)) return;
     } catch (e) {
       // listFiles can 500 if the directory was cleaned up mid-walk;
@@ -86,37 +87,60 @@ function makeTempDir(prefix: string): string {
 }
 
 /** Set up a watcher with a temp directory and sync handler. */
-function setupWatcher(label: string, tmpPrefix: string) {
+function setupWatcher(collectionName: string, tmpPrefix: string) {
   let watchDir: string;
   let watcher: ReturnType<typeof createWatcher>;
+  const pendingSyncs = new Set<Promise<void>>();
 
   beforeAll(async () => {
     watchDir = makeTempDir(tmpPrefix);
-    const folders: FolderConfig[] = [{ path: watchDir, label }];
-    const syncHandler = createSyncHandler(client, bankId);
-    watcher = createWatcher(folders, (event) => { syncHandler(event); });
+    const collections: CollectionConfig[] = [{ path: watchDir, name: collectionName }];
+    const syncHandler = createSyncHandler(client, contributorId);
+    watcher = createWatcher(collections, (event) => {
+      // Track in-flight sync tasks so teardown can await them and avoid
+      // late requests racing against server shutdown.
+      let task: Promise<void>;
+      task = syncHandler(event).finally(() => {
+        pendingSyncs.delete(task);
+      });
+      pendingSyncs.add(task);
+    });
     await new Promise<void>((resolve) => watcher.on("ready", resolve));
   });
 
   afterAll(async () => {
     if (watcher) await watcher.close();
+    await Promise.allSettled(Array.from(pendingSyncs));
     await rm(watchDir, { recursive: true, force: true }).catch(() => {});
   });
 
   return { get watchDir() { return watchDir; } };
 }
 
+/** Best-effort cleanup of QMD collection state used by integration tests. */
+async function cleanupQmdCollection(name: string): Promise<void> {
+  try {
+    const proc = Bun.spawn(["qmd", "collection", "remove", name], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await proc.exited;
+  } catch {
+    // Ignore cleanup failures (e.g., qmd unavailable).
+  }
+}
+
 /**
  * Direct sync handler: processes watcher events by calling the API directly.
  * Replaces Syncer+RetryQueue for test isolation.
  */
-function createSyncHandler(cl: SeedvaultClient, bId: string) {
+function createSyncHandler(cl: SeedvaultClient, contributorId: string) {
   return async (event: FileEvent) => {
     if (event.type === "add" || event.type === "change") {
       const content = readFileSync(event.localPath, "utf-8");
-      await cl.putFile(bId, event.serverPath, content);
+      await cl.putFile(contributorId, event.serverPath, content);
     } else if (event.type === "unlink") {
-      await cl.deleteFile(bId, event.serverPath).catch((e) => {
+      await cl.deleteFile(contributorId, event.serverPath).catch((e) => {
         // Ignore 404 — file may not have been synced yet
         if (e instanceof ApiError && e.status === 404) return;
         throw e;
@@ -147,14 +171,15 @@ beforeAll(async () => {
 
   // 3. Sign up (first user — no invite needed)
   const anonClient = createClient(baseUrl);
-  const signup = await anonClient.signup("test-bank");
-  bankId = signup.bank.id;
+  const signup = await anonClient.signup(TEST_CONTRIBUTOR_NAME);
+  contributorId = signup.contributor.id;
 
   // 4. Create authenticated client
   client = createClient(baseUrl, signup.token);
 }, 10_000);
 
 afterAll(async () => {
+  await cleanupQmdCollection(TEST_CONTRIBUTOR_NAME);
   if (server) server.stop(true);
   await rm(serverDataDir, { recursive: true, force: true }).catch(() => {});
 });
@@ -164,47 +189,47 @@ afterAll(async () => {
 // ---------------------------------------------------------------------------
 
 describe("API basics", () => {
-  test("signup created a bank", () => {
-    expect(bankId).toMatch(/^bank_/);
+  test("signup created a contributor", () => {
+    expect(contributorId).toMatch(/^contributor_/);
   });
 
-  test("GET /v1/banks returns the created bank", async () => {
-    const { banks } = await client.listBanks();
-    expect(banks.length).toBeGreaterThanOrEqual(1);
-    expect(banks.some((b) => b.id === bankId)).toBe(true);
+  test("GET /v1/contributors returns the created contributor", async () => {
+    const { contributors } = await client.listContributors();
+    expect(contributors.length).toBeGreaterThanOrEqual(1);
+    expect(contributors.some((contributor) => contributor.id === contributorId)).toBe(true);
   });
 
   test("PUT + GET a file roundtrips content", async () => {
     const path = "test/hello.md";
     const content = "# Hello\n\nWorld.\n";
 
-    const putRes = await client.putFile(bankId, path, content);
+    const putRes = await client.putFile(contributorId, path, content);
     expect(putRes.path).toBe(path);
     expect(putRes.size).toBe(content.length);
 
-    const got = await client.getFile(bankId, path);
+    const got = await client.getFile(contributorId, path);
     expect(got).toBe(content);
   });
 
   test("DELETE removes a file", async () => {
     const path = "test/to-delete.md";
-    await client.putFile(bankId, path, "bye");
-    await client.deleteFile(bankId, path);
+    await client.putFile(contributorId, path, "bye");
+    await client.deleteFile(contributorId, path);
 
-    const err = await client.getFile(bankId, path).catch((e) => e);
+    const err = await client.getFile(contributorId, path).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
 
   test("listFiles returns uploaded files", async () => {
-    const { files } = await client.listFiles(bankId, "test/");
+    const { files } = await client.listFiles(contributorId, "test/");
     expect(files.some((f) => f.path === "test/hello.md")).toBe(true);
   });
 
   test("second signup requires invite", async () => {
     const baseUrl = `http://127.0.0.1:${server.port}`;
     const anon = createClient(baseUrl);
-    const err = await anon.signup("second-bank").catch((e) => e);
+    const err = await anon.signup("second-contributor").catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(400);
   });
@@ -223,17 +248,17 @@ describe("API special characters", () => {
     ["unicode", "special/unicode 文档.md"],
   ];
 
-  for (const [label, path] of cases) {
-    test(`roundtrips file with ${label} in path`, async () => {
-      const content = `# ${label}\n\nContent for ${label} test.\n`;
-      await client.putFile(bankId, path, content);
-      const got = await client.getFile(bankId, path);
+  for (const [caseLabel, path] of cases) {
+    test(`roundtrips file with ${caseLabel} in path`, async () => {
+      const content = `# ${caseLabel}\n\nContent for ${caseLabel} test.\n`;
+      await client.putFile(contributorId, path, content);
+      const got = await client.getFile(contributorId, path);
       expect(got).toBe(content);
     });
   }
 
   test("listFiles includes special-char files", async () => {
-    const { files } = await client.listFiles(bankId, "special/");
+    const { files } = await client.listFiles(contributorId, "special/");
     const paths = files.map((f) => f.path);
     expect(paths).toContain("special/with spaces.md");
     expect(paths).toContain("special/colon: test.md");
@@ -244,10 +269,10 @@ describe("API special characters", () => {
 
   test("DELETE works with special characters", async () => {
     const path = "special/delete spaces.md";
-    await client.putFile(bankId, path, "temp");
-    await client.deleteFile(bankId, path);
+    await client.putFile(contributorId, path, "temp");
+    await client.deleteFile(contributorId, path);
 
-    const err = await client.getFile(bankId, path).catch((e) => e);
+    const err = await client.getFile(contributorId, path).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
@@ -258,14 +283,14 @@ describe("API special characters", () => {
 // ---------------------------------------------------------------------------
 
 describe("watcher sync", () => {
-  const label = "watch-test";
-  const ctx = setupWatcher(label, "sv-test-watch-");
+  const collectionName = "watch-test";
+  const ctx = setupWatcher(collectionName, "sv-test-watch-");
 
   test("picks up new file", async () => {
     await writeFile(join(ctx.watchDir, "hello.md"), "# Hello from watcher\n");
 
-    await waitForFile(client, bankId, `${label}/hello.md`);
-    const content = await client.getFile(bankId, `${label}/hello.md`);
+    await waitForFile(client, contributorId, `${collectionName}/hello.md`);
+    const content = await client.getFile(contributorId, `${collectionName}/hello.md`);
     expect(content).toBe("# Hello from watcher\n");
   });
 
@@ -274,8 +299,8 @@ describe("watcher sync", () => {
     await mkdir(nested, { recursive: true });
     await writeFile(join(nested, "deep.md"), "# Deep\n");
 
-    await waitForFile(client, bankId, `${label}/sub/folder/deep.md`);
-    const content = await client.getFile(bankId, `${label}/sub/folder/deep.md`);
+    await waitForFile(client, contributorId, `${collectionName}/sub/folder/deep.md`);
+    const content = await client.getFile(contributorId, `${collectionName}/sub/folder/deep.md`);
     expect(content).toBe("# Deep\n");
   });
 
@@ -285,7 +310,7 @@ describe("watcher sync", () => {
 
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
-      const content = await client.getFile(bankId, `${label}/hello.md`);
+      const content = await client.getFile(contributorId, `${collectionName}/hello.md`);
       if (content === "# Hello updated\n") return;
       await Bun.sleep(100);
     }
@@ -295,9 +320,9 @@ describe("watcher sync", () => {
   test("detects file deletion", async () => {
     await rm(join(ctx.watchDir, "hello.md"));
 
-    await waitForDelete(client, bankId, `${label}/hello.md`);
+    await waitForDelete(client, contributorId, `${collectionName}/hello.md`);
 
-    const err = await client.getFile(bankId, `${label}/hello.md`).catch((e) => e);
+    const err = await client.getFile(contributorId, `${collectionName}/hello.md`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
@@ -308,8 +333,8 @@ describe("watcher sync", () => {
 // ---------------------------------------------------------------------------
 
 describe("watcher special characters", () => {
-  const label = "special-watch";
-  const ctx = setupWatcher(label, "sv-test-special-watch-");
+  const collectionName = "special-watch";
+  const ctx = setupWatcher(collectionName, "sv-test-special-watch-");
 
   const specialFiles: [string, string, string][] = [
     ["spaces", "with spaces.md", "# Spaces\n"],
@@ -322,8 +347,8 @@ describe("watcher special characters", () => {
   for (const [desc, filename, content] of specialFiles) {
     test(`syncs file with ${desc} via watcher`, async () => {
       await writeFile(join(ctx.watchDir, filename), content);
-      await waitForFile(client, bankId, `${label}/${filename}`);
-      const got = await client.getFile(bankId, `${label}/${filename}`);
+      await waitForFile(client, contributorId, `${collectionName}/${filename}`);
+      const got = await client.getFile(contributorId, `${collectionName}/${filename}`);
       expect(got).toBe(content);
     });
   }
@@ -334,16 +359,16 @@ describe("watcher special characters", () => {
 // ---------------------------------------------------------------------------
 
 describe("watcher nested structures", () => {
-  const label = "nested-watch";
-  const ctx = setupWatcher(label, "sv-test-nested-");
+  const collectionName = "nested-watch";
+  const ctx = setupWatcher(collectionName, "sv-test-nested-");
 
   test("syncs deeply nested file", async () => {
     const deepDir = join(ctx.watchDir, "a", "b", "c");
     await mkdir(deepDir, { recursive: true });
     await writeFile(join(deepDir, "deep.md"), "# Deep\n");
 
-    await waitForFile(client, bankId, `${label}/a/b/c/deep.md`);
-    const content = await client.getFile(bankId, `${label}/a/b/c/deep.md`);
+    await waitForFile(client, contributorId, `${collectionName}/a/b/c/deep.md`);
+    const content = await client.getFile(contributorId, `${collectionName}/a/b/c/deep.md`);
     expect(content).toBe("# Deep\n");
   });
 
@@ -358,15 +383,15 @@ describe("watcher nested structures", () => {
     ]);
 
     await Promise.all([
-      waitForFile(client, bankId, `${label}/root.md`),
-      waitForFile(client, bankId, `${label}/x/mid.md`),
-      waitForFile(client, bankId, `${label}/x/y/leaf.md`),
+      waitForFile(client, contributorId, `${collectionName}/root.md`),
+      waitForFile(client, contributorId, `${collectionName}/x/mid.md`),
+      waitForFile(client, contributorId, `${collectionName}/x/y/leaf.md`),
     ]);
 
     const [root, mid, leaf] = await Promise.all([
-      client.getFile(bankId, `${label}/root.md`),
-      client.getFile(bankId, `${label}/x/mid.md`),
-      client.getFile(bankId, `${label}/x/y/leaf.md`),
+      client.getFile(contributorId, `${collectionName}/root.md`),
+      client.getFile(contributorId, `${collectionName}/x/mid.md`),
+      client.getFile(contributorId, `${collectionName}/x/y/leaf.md`),
     ]);
 
     expect(root).toBe("# Root\n");
@@ -380,17 +405,17 @@ describe("watcher nested structures", () => {
 // ---------------------------------------------------------------------------
 
 describe("file deletes", () => {
-  const label = "delete-watch";
-  const ctx = setupWatcher(label, "sv-test-delete-");
+  const collectionName = "delete-watch";
+  const ctx = setupWatcher(collectionName, "sv-test-delete-");
 
   test("deleting a synced file removes it from server", async () => {
     await writeFile(join(ctx.watchDir, "doomed.md"), "# Doomed\n");
-    await waitForFile(client, bankId, `${label}/doomed.md`);
+    await waitForFile(client, contributorId, `${collectionName}/doomed.md`);
 
     await rm(join(ctx.watchDir, "doomed.md"));
-    await waitForDelete(client, bankId, `${label}/doomed.md`);
+    await waitForDelete(client, contributorId, `${collectionName}/doomed.md`);
 
-    const err = await client.getFile(bankId, `${label}/doomed.md`).catch((e) => e);
+    const err = await client.getFile(contributorId, `${collectionName}/doomed.md`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
@@ -401,12 +426,12 @@ describe("file deletes", () => {
     await writeFile(join(subDir, "a.md"), "# A\n");
     await writeFile(join(subDir, "b.md"), "# B\n");
 
-    await waitForFile(client, bankId, `${label}/toRemove/a.md`);
-    await waitForFile(client, bankId, `${label}/toRemove/b.md`);
+    await waitForFile(client, contributorId, `${collectionName}/toRemove/a.md`);
+    await waitForFile(client, contributorId, `${collectionName}/toRemove/b.md`);
 
     await rm(subDir, { recursive: true });
 
-    await waitForDelete(client, bankId, `${label}/toRemove/a.md`);
-    await waitForDelete(client, bankId, `${label}/toRemove/b.md`);
+    await waitForDelete(client, contributorId, `${collectionName}/toRemove/a.md`);
+    await waitForDelete(client, contributorId, `${collectionName}/toRemove/b.md`);
   });
 });

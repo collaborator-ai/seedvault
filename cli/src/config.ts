@@ -4,16 +4,16 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 
 // --- Types ---
 
-export interface FolderConfig {
+export interface CollectionConfig {
   path: string;
-  label: string;
+  name: string;
 }
 
 export interface Config {
   server: string;
   token: string;
-  bankId: string;
-  folders: FolderConfig[];
+  contributorId: string;
+  collections: CollectionConfig[];
 }
 
 // --- Paths ---
@@ -61,44 +61,44 @@ export function saveConfig(config: Config): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n");
 }
 
-// --- Folder management ---
+// --- Collection management ---
 
-export function addFolder(config: Config, folderPath: string, label: string): Config {
+export function addCollection(config: Config, collectionPath: string, name: string): Config {
   // Resolve to absolute path
-  const resolved = folderPath.startsWith("~")
-    ? resolve(homedir(), folderPath.slice(2))  // skip ~/
-    : resolve(folderPath);
+  const resolved = collectionPath.startsWith("~")
+    ? resolve(homedir(), collectionPath.slice(2))  // skip ~/
+    : resolve(collectionPath);
 
-  // Check for duplicate label
-  if (config.folders.some((f) => f.label === label)) {
-    throw new Error(`A folder with label '${label}' already exists. Use --label to pick a different name.`);
+  // Check for duplicate name
+  if (config.collections.some((f) => f.name === name)) {
+    throw new Error(`A collection named '${name}' already exists. Use --name to pick a different name.`);
   }
 
   // Check for duplicate path
-  if (config.folders.some((f) => f.path === resolved)) {
-    throw new Error(`Folder '${resolved}' is already configured.`);
+  if (config.collections.some((f) => f.path === resolved)) {
+    throw new Error(`Collection path '${resolved}' is already configured.`);
   }
 
   return {
     ...config,
-    folders: [...config.folders, { path: resolved, label }],
+    collections: [...config.collections, { path: resolved, name }],
   };
 }
 
-export function removeFolder(config: Config, label: string): Config {
-  const filtered = config.folders.filter((f) => f.label !== label);
-  if (filtered.length === config.folders.length) {
-    throw new Error(`No folder with label '${label}' found.`);
+export function removeCollection(config: Config, name: string): Config {
+  const filtered = config.collections.filter((f) => f.name !== name);
+  if (filtered.length === config.collections.length) {
+    throw new Error(`No collection named '${name}' found.`);
   }
-  return { ...config, folders: filtered };
+  return { ...config, collections: filtered };
 }
 
-/** Derive a label from a folder path (its basename) */
-export function defaultLabel(folderPath: string): string {
-  const abs = folderPath.startsWith("~")
-    ? join(homedir(), folderPath.slice(1))
-    : folderPath;
+/** Derive a name from a collection path (its basename) */
+export function defaultCollectionName(collectionPath: string): string {
+  const abs = collectionPath.startsWith("~")
+    ? join(homedir(), collectionPath.slice(1))
+    : collectionPath;
   const base = abs.split("/").filter(Boolean).pop();
-  if (!base) throw new Error(`Cannot derive label from path: ${folderPath}`);
+  if (!base) throw new Error(`Cannot derive name from path: ${collectionPath}`);
   return base;
 }

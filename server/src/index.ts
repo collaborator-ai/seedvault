@@ -1,8 +1,8 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
-import { initDb, listBanks } from "./db.js";
+import { initDb, listContributors } from "./db.js";
 import { createApp } from "./routes.js";
-import { isQmdAvailable, syncCollections } from "./qmd.js";
+import { isQmdAvailable, syncContributors } from "./qmd.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const DATA_DIR = process.env.DATA_DIR || "./data";
@@ -29,10 +29,10 @@ console.log(`  Storage:  ${storageRoot}`);
 const qmdAvailable = await isQmdAvailable();
 if (qmdAvailable) {
   console.log("  QMD:      available");
-  const banks = listBanks();
-  if (banks.length > 0) {
-    await syncCollections(storageRoot, banks);
-    console.log(`  QMD:      synced ${banks.length} collection(s)`);
+  const contributors = listContributors();
+  if (contributors.length > 0) {
+    await syncContributors(storageRoot, contributors);
+    console.log(`  QMD:      synced ${contributors.length} collection(s)`);
   }
 } else {
   console.log("  QMD:      not found (search disabled)");
