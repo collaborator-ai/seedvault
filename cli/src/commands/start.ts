@@ -62,8 +62,8 @@ async function startForeground(): Promise<void> {
   // Initial sync
   log("Running initial sync...");
   try {
-    const { uploaded, skipped } = await syncer.initialSync();
-    log(`Initial sync complete: ${uploaded} uploaded, ${skipped} skipped`);
+    const { uploaded, skipped, deleted } = await syncer.initialSync();
+    log(`Initial sync complete: ${uploaded} uploaded, ${skipped} skipped, ${deleted} deleted`);
   } catch (e: unknown) {
     log(`Initial sync failed: ${(e as Error).message}`);
     log("Will continue watching for changes...");

@@ -21,7 +21,6 @@ export interface Config {
 const CONFIG_DIR = join(homedir(), ".config", "seedvault");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 const PID_PATH = join(CONFIG_DIR, "daemon.pid");
-const QUEUE_PATH = join(CONFIG_DIR, "queue.json");
 
 export function getConfigDir(): string {
   return CONFIG_DIR;
@@ -33,10 +32,6 @@ export function getConfigPath(): string {
 
 export function getPidPath(): string {
   return PID_PATH;
-}
-
-export function getQueuePath(): string {
-  return QUEUE_PATH;
 }
 
 // --- Config CRUD ---

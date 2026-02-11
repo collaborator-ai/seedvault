@@ -211,6 +211,8 @@
           row.className = "tree-row";
           row.style.paddingLeft = "8px";
           const sub = document.createElement("ul");
+          sub.dataset.bank = b.id;
+          sub.dataset.loaded = "false";
           let loaded = false;
           row.innerHTML = '<span class="arrow">&#9654;</span>' + b.name;
           row.onclick = async () => {
@@ -220,6 +222,7 @@
               row.querySelector(".arrow").innerHTML = "&#9660;";
               if (!loaded) {
                 loaded = true;
+                sub.dataset.loaded = "true";
                 await loadBankFiles(b.id, sub);
               }
             } else {
@@ -235,6 +238,7 @@
             sub.classList.remove("collapsed");
             row.querySelector(".arrow").innerHTML = "&#9660;";
             loaded = true;
+            sub.dataset.loaded = "true";
             await loadBankFiles(b.id, sub);
             if (savedFile) {
               const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
@@ -325,21 +329,10 @@
 
       /** Insert a new file path into the existing tree UI */
       function addFileToTree(bankId, path) {
-        // Find the bank's sub <ul>
-        const bankRows = filesEl.querySelectorAll('[data-bank]');
-        let targetBankId = null;
-        let targetUl = null;
-        // Walk top-level <li> nodes to find the bank
-        for (const li of filesEl.children) {
-          const sub = li.querySelector("ul");
-          if (!sub) continue;
-          // Check if any file in this subtree belongs to the bank
-          const firstFile = sub.querySelector("[data-bank]");
-          if (firstFile && firstFile.dataset.bank === bankId) {
-            targetUl = sub;
-            break;
-          }
-        }
+        // Update only banks whose file list has been loaded in the UI.
+        const targetUl = filesEl.querySelector(
+          'ul[data-bank="' + CSS.escape(bankId) + '"][data-loaded="true"]'
+        );
         if (!targetUl) return; // bank not expanded yet, nothing to update
 
         // Split path into segments and navigate/create tree nodes

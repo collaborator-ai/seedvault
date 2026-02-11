@@ -25,10 +25,8 @@ import { createClient, type SeedvaultClient, ApiError } from "../cli/src/client.
 import { createWatcher, type FileEvent } from "../cli/src/daemon/watcher.js";
 import type { FolderConfig } from "../cli/src/config.js";
 
-// NOTE: We don't import Syncer because it creates a RetryQueue which
-// loads stale queue data from ~/.config/seedvault/queue.json (and
-// os.homedir() in Bun ignores runtime HOME changes). Instead, we
-// handle watcher events directly using the client API.
+// NOTE: We don't import Syncer here so tests can isolate watcher behavior
+// from queue/retry behavior; we handle watcher events directly via the API.
 
 // ---------------------------------------------------------------------------
 // Globals set in beforeAll

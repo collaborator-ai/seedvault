@@ -1,5 +1,3 @@
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { getQueuePath } from "../config.js";
 import type { SeedvaultClient } from "../client.js";
 import { ApiError } from "../client.js";
 
@@ -31,13 +29,11 @@ export class RetryQueue {
   constructor(client: SeedvaultClient, onStatus: (msg: string) => void = () => {}) {
     this.client = client;
     this.onStatus = onStatus;
-    this.loadFromDisk();
   }
 
   /** Enqueue an operation. If online, flushes immediately. */
   enqueue(op: QueuedOperation): void {
     this.items.push(op);
-    this.saveToDisk();
     this.scheduleFlush(0);
   }
 
@@ -52,7 +48,6 @@ export class RetryQueue {
       clearTimeout(this.flushTimer);
       this.flushTimer = null;
     }
-    this.saveToDisk();
   }
 
   // --- Internal ---
@@ -82,7 +77,6 @@ export class RetryQueue {
 
         // Success — remove from queue and reset backoff
         this.items.shift();
-        this.saveToDisk();
         this.backoff = MIN_BACKOFF;
       } catch (e: unknown) {
         // API errors (4xx) mean the server is reachable but the op is invalid —
@@ -90,7 +84,6 @@ export class RetryQueue {
         if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
           this.onStatus(`Dropping failed op: ${op.type} ${op.serverPath} (${e.status})`);
           this.items.shift();
-          this.saveToDisk();
           continue;
         }
 
@@ -109,29 +102,6 @@ export class RetryQueue {
     this.flushing = false;
     if (this.items.length === 0) {
       this.onStatus("Queue flushed — all synced.");
-    }
-  }
-
-  // --- Disk persistence ---
-
-  private loadFromDisk(): void {
-    const path = getQueuePath();
-    if (existsSync(path)) {
-      try {
-        const raw = readFileSync(path, "utf-8");
-        this.items = JSON.parse(raw) as QueuedOperation[];
-      } catch {
-        this.items = [];
-      }
-    }
-  }
-
-  private saveToDisk(): void {
-    const path = getQueuePath();
-    try {
-      writeFileSync(path, JSON.stringify(this.items));
-    } catch {
-      // Best effort
     }
   }
 }
