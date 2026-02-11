@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Seedvault</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      html {
+        color-scheme: light dark;
+        font-family: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, monospace;
+        font-size: 13px;
+      }
+      html, body { height: 100%; }
+      body {
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+      }
+      .top { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; flex-shrink: 0; }
+      input, select, button {
+        font: inherit;
+        padding: 4px 8px;
+        background: transparent;
+        color: inherit;
+        border: 1px solid;
+      }
+      #token { min-width: 260px; flex: 1; }
+      button { cursor: pointer; }
+      .grid {
+        display: flex;
+        gap: 0;
+        flex: 1;
+        min-height: 0;
+      }
+      .grid > .panel:first-child { flex-shrink: 0; }
+      .grid > .panel:last-child { flex: 1; min-width: 0; }
+      .divider {
+        width: 5px;
+        cursor: col-resize;
+        background: transparent;
+        flex-shrink: 0;
+      }
+      .divider:hover, .divider.dragging {
+        background: color-mix(in srgb, currentColor 20%, transparent);
+      }
+      @media (max-width: 600px) {
+        .grid { flex-direction: column; }
+        .grid > .panel:first-child { width: auto; }
+        .divider { display: none; }
+      }
+      .panel {
+        border: 1px solid;
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        overflow: hidden;
+      }
+      .panel-head {
+        padding: 4px 8px;
+        border-bottom: 1px solid;
+        font-weight: bold;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        flex-shrink: 0;
+      }
+      .panel-body {
+        flex: 1;
+        overflow: auto;
+      }
+      .list { list-style: none; padding: 0; }
+      .list button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: none;
+        border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+        padding: 4px 8px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .list button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
+      .list button.active { font-weight: bold; }
+      #content {
+        padding: 8px;
+        white-space: pre-wrap;
+        overflow: auto;
+        line-height: 1.4;
+      }
+      #status { margin-top: 8px; font-size: 11px; opacity: 0.6; flex-shrink: 0; }
+    </style>
+  </head>
+  <body>
+    <div class="top">
+      <input id="token" type="password" placeholder="sv_..." />
+      <select id="bank"><option value="">--</option></select>
+      <button id="connect">Load</button>
+    </div>
+    <div class="grid">
+      <section id="nav" class="panel" style="width:220px">
+        <div class="panel-head">Files</div>
+        <div class="panel-body"><ul id="files" class="list"></ul></div>
+      </section>
+      <div id="divider" class="divider"></div>
+      <section class="panel">
+        <div class="panel-head">Content</div>
+        <div class="panel-body"><pre id="content"></pre></div>
+      </section>
+    </div>
+    <div id="status"></div>
+    <script>
+      const $ = (id) => document.getElementById(id);
+      const tokenEl = $("token");
+      const bankEl = $("bank");
+      const filesEl = $("files");
+      const contentEl = $("content");
+      const statusEl = $("status");
+
+      let token = localStorage.getItem("sv-token") || "";
+      tokenEl.value = token;
+
+      function status(msg) { statusEl.textContent = msg; }
+
+      async function api(url) {
+        const res = await fetch(url, {
+          headers: token ? { Authorization: "Bearer " + token } : {},
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error((body.error || "Request failed") + " (" + res.status + ")");
+        }
+        return res;
+      }
+
+      const savedBank = localStorage.getItem("sv-bank") || "";
+      const savedFile = localStorage.getItem("sv-file") || "";
+
+      async function loadBanks() {
+        status("Loading banks...");
+        const { banks } = await (await api("/v1/banks")).json();
+        bankEl.innerHTML = '<option value="">--</option>';
+        for (const b of banks) {
+          const opt = document.createElement("option");
+          opt.value = b.id;
+          opt.textContent = b.name;
+          bankEl.appendChild(opt);
+        }
+        if (savedBank) {
+          bankEl.value = savedBank;
+          if (bankEl.value === savedBank) await loadFiles(savedBank);
+        }
+        status(banks.length + " bank(s)");
+      }
+
+      async function loadFiles(bankId) {
+        filesEl.innerHTML = "";
+        contentEl.textContent = "";
+        localStorage.setItem("sv-bank", bankId);
+        status("Loading files...");
+        const { files } = await (await api("/v1/banks/" + encodeURIComponent(bankId) + "/files")).json();
+        for (const f of files) {
+          const li = document.createElement("li");
+          const btn = document.createElement("button");
+          btn.textContent = f.path;
+          btn.onclick = () => loadContent(bankId, f.path, btn);
+          li.appendChild(btn);
+          filesEl.appendChild(li);
+        }
+        if (savedFile) {
+          for (const btn of filesEl.querySelectorAll("button")) {
+            if (btn.textContent === savedFile) {
+              await loadContent(bankId, savedFile, btn);
+              break;
+            }
+          }
+        }
+        status(files.length + " file(s)");
+      }
+
+      async function loadContent(bankId, path, btn) {
+        filesEl.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        localStorage.setItem("sv-file", path);
+        status("Loading " + path + "...");
+        const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+        const res = await api("/v1/banks/" + encodeURIComponent(bankId) + "/files/" + encodedPath);
+        contentEl.textContent = await res.text();
+        status(path);
+      }
+
+      bankEl.onchange = () => {
+        localStorage.removeItem("sv-file");
+        if (bankEl.value) loadFiles(bankEl.value).catch((e) => status(e.message));
+      };
+
+      $("connect").onclick = () => {
+        token = tokenEl.value.trim();
+        localStorage.setItem("sv-token", token);
+        loadBanks().catch((e) => status(e.message));
+      };
+
+      if (token) loadBanks().catch((e) => status(e.message));
+
+      // Divider drag
+      const divider = $("divider");
+      const nav = $("nav");
+      const savedNav = localStorage.getItem("sv-nav-w");
+      if (savedNav) nav.style.width = savedNav + "px";
+      divider.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        divider.classList.add("dragging");
+        const onMove = (e) => {
+          const w = e.clientX - nav.getBoundingClientRect().left;
+          if (w > 80 && w < window.innerWidth - 120) nav.style.width = w + "px";
+        };
+        const onUp = () => {
+          divider.classList.remove("dragging");
+          localStorage.setItem("sv-nav-w", nav.offsetWidth);
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    </script>
+  </body>
+</html>

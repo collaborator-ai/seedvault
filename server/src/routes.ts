@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import {
   createBank,
   createApiKey,
@@ -29,8 +31,16 @@ import {
 import { broadcast, addClient, removeClient } from "./sse.js";
 import * as qmd from "./qmd.js";
 
+const uiPath = resolve(import.meta.dirname, "index.html");
+const isDev = process.env.NODE_ENV !== "production";
+const uiHtmlCached = readFileSync(uiPath, "utf-8");
+
 export function createApp(storageRoot: string): Hono {
   const app = new Hono();
+
+  app.get("/", (c) => {
+    return c.html(isDev ? readFileSync(uiPath, "utf-8") : uiHtmlCached);
+  });
 
   // --- Health (no auth) ---
 
