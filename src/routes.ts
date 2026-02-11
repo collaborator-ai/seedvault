@@ -263,16 +263,18 @@ export function createApp(storageRoot: string): Hono {
   // --- SSE Events ---
 
   authed.get("/v1/events", (c) => {
+    let ctrl: ReadableStreamDefaultController;
     const stream = new ReadableStream({
       start(controller) {
+        ctrl = controller;
         addClient(controller);
 
         // Send initial connected event
         const msg = `event: connected\ndata: {}\n\n`;
         controller.enqueue(new TextEncoder().encode(msg));
       },
-      cancel(controller) {
-        removeClient(controller);
+      cancel() {
+        removeClient(ctrl);
       },
     });
 
@@ -293,10 +295,20 @@ export function createApp(storageRoot: string): Hono {
       return c.json({ error: "q parameter is required" }, 400);
     }
 
-    const collection = c.req.query("bank") || undefined;
+    const bankParam = c.req.query("bank") || undefined;
     const limit = parseInt(c.req.query("limit") || "10", 10);
 
-    const results = await qmd.search(q, { collection, limit });
+    // Resolve bank param (accepts bank ID or name) to QMD collection name
+    let collectionName: string | undefined;
+    if (bankParam) {
+      const bank = getBankById(bankParam) ?? getBankByName(bankParam);
+      if (!bank) {
+        return c.json({ error: "Bank not found" }, 404);
+      }
+      collectionName = bank.name;
+    }
+
+    const results = await qmd.search(q, { collection: collectionName, limit });
     return c.json({ results });
   });
 

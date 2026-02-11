@@ -1,9 +1,12 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
+# Install QMD globally (search engine for markdown)
+RUN bun install -g https://github.com/tobi/qmd
+
 # Install dependencies
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+COPY package.json bun.lock* ./
+RUN bun install --production
 
 # Copy source
 COPY src/ src/

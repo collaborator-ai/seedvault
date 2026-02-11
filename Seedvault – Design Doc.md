@@ -333,7 +333,7 @@ A single SQLite database stores bank records and API keys. No file content in th
 ```sql
 CREATE TABLE banks (
   id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
+  name TEXT NOT NULL UNIQUE,
   is_operator BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TEXT NOT NULL
 );

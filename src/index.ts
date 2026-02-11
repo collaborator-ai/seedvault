@@ -17,6 +17,14 @@ await mkdir(storageRoot, { recursive: true });
 // Initialize database
 initDb(dbPath);
 
+// Create and start the server
+const app = createApp(storageRoot);
+
+console.log(`Seedvault server starting on port ${PORT}`);
+console.log(`  Data dir: ${DATA_DIR}`);
+console.log(`  Database: ${dbPath}`);
+console.log(`  Storage:  ${storageRoot}`);
+
 // Check for QMD and sync collections
 const qmdAvailable = await isQmdAvailable();
 if (qmdAvailable) {
@@ -29,14 +37,6 @@ if (qmdAvailable) {
 } else {
   console.log("  QMD:      not found (search disabled)");
 }
-
-// Create and start the server
-const app = createApp(storageRoot);
-
-console.log(`Seedvault server starting on port ${PORT}`);
-console.log(`  Data dir: ${DATA_DIR}`);
-console.log(`  Database: ${dbPath}`);
-console.log(`  Storage:  ${storageRoot}`);
 
 export default {
   port: PORT,
