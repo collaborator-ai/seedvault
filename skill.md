@@ -107,16 +107,53 @@ Shows service state (launchd/systemd/Task Scheduler), configured collections, an
 
 ## File Operations (reads from server)
 
-### List files
+The vault's storage root is exposed as a read-only filesystem. Contributors are top-level directories. All read commands pass through to the server via `POST /v1/sh` — you're running real Unix commands against the file tree.
+
+### Browse the vault
 ```bash
-sv ls              # All files in your contributor
-sv ls notes/       # Files under a prefix
+sv ls                          # List all contributors
+sv ls yiliu/                   # List a contributor's collections
+sv ls yiliu/notes/             # List files in a collection
 ```
 
-### Read a file
+### Read files
 ```bash
-sv cat notes/seedvault.md
+sv cat yiliu/notes/seedvault.md
 ```
+
+### Search
+```bash
+sv grep -r "search term" .           # Search across all contributors
+sv grep -rl "API design" yiliu/      # File names only, one contributor
+```
+
+### Find files
+```bash
+sv find . -name "*.md"                    # All markdown files
+sv find yiliu -name "*.md" -mmin -60      # Recently modified
+```
+
+### Other commands
+`head`, `tail`, `wc`, `stat`, and `tree` also work:
+```bash
+sv head -20 yiliu/notes/seedvault.md
+sv tree yiliu -L 2
+sv wc -l yiliu/notes/*.md
+```
+
+**Note:** Since commands run without a shell, globs like `*.md` won't expand in `ls` or `cat`. Use `find -name "*.md"` instead.
+
+### HTTP API (direct)
+
+Agents can also call the shell endpoint directly:
+```bash
+curl -s https://vault.example.com/v1/sh \
+  -H "Authorization: Bearer sv_..." \
+  -H "Content-Type: application/json" \
+  -d '{"cmd": "grep -r \"context\" yiliu/"}'
+```
+
+Allowed commands: `ls`, `cat`, `head`, `tail`, `find`, `grep`, `wc`, `tree`, `stat`. Response is plain text stdout with `X-Exit-Code` and `X-Stderr` headers.
 
 ## Vault Info
 
@@ -146,15 +183,20 @@ sv add ~/new-project/docs --name project-docs
 sv start
 ```
 
-### 3. Check what files are in the vault
+### 3. Browse the vault
 ```bash
-sv ls
-sv ls notes/
+sv ls                              # See all contributors
+sv ls yiliu/notes/                 # Browse someone's files
+sv cat yiliu/notes/seedvault.md    # Read a file
+sv grep -r "query" .              # Search everything
 ```
 
-### 4. Read a specific file
+### 4. Read a specific file (HTTP)
 ```bash
-sv cat notes/seedvault.md
+curl -s https://vault.example.com/v1/sh \
+  -H "Authorization: Bearer sv_..." \
+  -H "Content-Type: application/json" \
+  -d '{"cmd": "cat yiliu/notes/seedvault.md"}'
 ```
 
 ## Configuration
