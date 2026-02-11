@@ -190,13 +190,32 @@
         }
       }
 
-      async function loadContributorFiles(contributorId, sub) {
+      function markActiveRow() {
+        filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
+        const activePath = localStorage.getItem("sv-file");
+        const activeContributor = localStorage.getItem("sv-contributor");
+        if (!activePath || !activeContributor) return;
+        const active = filesEl.querySelector(
+          '.tree-row[data-contributor="' + CSS.escape(activeContributor) + '"][data-path="' + CSS.escape(activePath) + '"]'
+        );
+        if (active) active.classList.add("active");
+      }
+
+      function getLoadedContributorList(contributorId) {
+        return filesEl.querySelector(
+          'ul[data-contributor="' + CSS.escape(contributorId) + '"][data-loaded="true"]'
+        );
+      }
+
+      async function loadContributorFiles(contributorId, sub, opts = {}) {
+        const silent = !!opts.silent;
         sub.innerHTML = "";
-        status("Loading files...");
+        if (!silent) status("Loading files...");
         const { files } = await (await api("/v1/contributors/" + encodeURIComponent(contributorId) + "/files")).json();
         const tree = buildTree(files.map((f) => f.path));
         renderTree(tree, sub, contributorId, 1);
-        status(files.length + " file(s)");
+        markActiveRow();
+        if (!silent) status(files.length + " file(s)");
       }
 
       async function loadContributors() {
@@ -269,6 +288,23 @@
 
       // --- SSE real-time updates ---
       let evtSource = null;
+      const contributorReloadTimers = new Map();
+
+      function scheduleContributorReload(contributorId) {
+        if (!getLoadedContributorList(contributorId)) return;
+
+        const existing = contributorReloadTimers.get(contributorId);
+        if (existing) clearTimeout(existing);
+
+        const timer = setTimeout(() => {
+          contributorReloadTimers.delete(contributorId);
+          const targetUl = getLoadedContributorList(contributorId);
+          if (!targetUl) return;
+          loadContributorFiles(contributorId, targetUl, { silent: true }).catch((e) => status(e.message));
+        }, 100);
+
+        contributorReloadTimers.set(contributorId, timer);
+      }
 
       function connectSSE() {
         if (evtSource) evtSource.close();
@@ -277,12 +313,8 @@
         evtSource = new EventSource("/v1/events?token=" + encodeURIComponent(token));
 
         evtSource.addEventListener("file_updated", (e) => {
-          const { contributor, path, size, modifiedAt } = JSON.parse(e.data);
-          // Add file to tree if missing
-          const existing = filesEl.querySelector('[data-path="' + CSS.escape(path) + '"]');
-          if (!existing) {
-            addFileToTree(contributor, path);
-          }
+          const { contributor, path } = JSON.parse(e.data);
+          scheduleContributorReload(contributor);
           // If this file is currently open, reload its content
           if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
             const encodedPath = path.split("/").map(encodeURIComponent).join("/");
@@ -294,13 +326,7 @@
 
         evtSource.addEventListener("file_deleted", (e) => {
           const { contributor, path } = JSON.parse(e.data);
-          const row = filesEl.querySelector('[data-path="' + CSS.escape(path) + '"]');
-          if (row) {
-            const li = row.parentElement;
-            li.remove();
-            // Clean up empty parent directories
-            pruneEmptyDirs(filesEl);
-          }
+          scheduleContributorReload(contributor);
           // If this file was being viewed, clear the content
           if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
             contentEl.textContent = "";
@@ -311,82 +337,6 @@
         evtSource.onerror = () => {
           // EventSource auto-reconnects
         };
-      }
-
-      /** Remove empty <ul> directory containers left after file deletions.
-       *  Preserves contributor-level nodes (direct children of #files). */
-      function pruneEmptyDirs(root) {
-        const uls = root.querySelectorAll("ul");
-        for (let i = uls.length - 1; i >= 0; i--) {
-          const ul = uls[i];
-          if (ul.id === "files") continue;
-          if (ul.children.length === 0) {
-            const parentLi = ul.parentElement;
-            if (parentLi && parentLi.parentElement !== filesEl) parentLi.remove();
-          }
-        }
-      }
-
-      /** Insert a new file path into the existing tree UI */
-      function addFileToTree(contributorId, path) {
-        // Update only contributors whose file list has been loaded in the UI.
-        const targetUl = filesEl.querySelector(
-          'ul[data-contributor="' + CSS.escape(contributorId) + '"][data-loaded="true"]'
-        );
-        if (!targetUl) return; // contributor not expanded yet, nothing to update
-
-        // Split path into segments and navigate/create tree nodes
-        const parts = path.split("/");
-        let currentUl = targetUl;
-
-        for (let i = 0; i < parts.length; i++) {
-          const part = parts[i];
-          const isLast = i === parts.length - 1;
-          const depth = i + 1;
-
-          if (isLast) {
-            // Create file row
-            const li = document.createElement("li");
-            const row = document.createElement("div");
-            row.className = "tree-row";
-            row.style.paddingLeft = (depth * 12 + 8) + "px";
-            row.innerHTML = '<span class="arrow">&nbsp;</span>' + part;
-            row.dataset.path = path;
-            row.dataset.contributor = contributorId;
-            row.onclick = () => loadContent(contributorId, path, row);
-            li.appendChild(row);
-            currentUl.appendChild(li);
-          } else {
-            // Find or create directory
-            let found = null;
-            for (const li of currentUl.children) {
-              const row = li.querySelector(".tree-row");
-              if (!row) continue;
-              // Directory rows don't have data-path
-              if (!row.dataset.path && row.textContent.trim().replace(/[▶▼]/g, "").trim() === part) {
-                found = li.querySelector("ul");
-                break;
-              }
-            }
-            if (!found) {
-              const li = document.createElement("li");
-              const row = document.createElement("div");
-              row.className = "tree-row";
-              row.style.paddingLeft = (depth * 12 + 8) + "px";
-              const sub = document.createElement("ul");
-              row.innerHTML = '<span class="arrow">&#9660;</span>' + part;
-              row.onclick = () => {
-                sub.classList.toggle("collapsed");
-                row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
-              };
-              li.appendChild(row);
-              li.appendChild(sub);
-              currentUl.appendChild(li);
-              found = sub;
-            }
-            currentUl = found;
-          }
-        }
       }
 
       if (token) loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
