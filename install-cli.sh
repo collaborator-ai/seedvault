@@ -165,15 +165,24 @@ run_onboarding() {
     return
   fi
 
-  if [[ ! -t 0 ]]; then
-    ui_info "  No interactive terminal detected — skipping onboarding."
-    ui_info "  Run 'sv init' to configure Seedvault."
-    return
-  fi
-
   if [[ -f "$CONFIG_FILE" ]]; then
     ui_success "  Already configured ($CONFIG_FILE exists)"
     return
+  fi
+
+  # When piped (curl | bash), stdin is the script itself — reopen /dev/tty
+  # for interactive prompts. If /dev/tty isn't available (e.g. CI), skip.
+  if [[ ! -t 0 ]]; then
+    if [[ -e /dev/tty ]]; then
+      ui_info "  Starting interactive setup..."
+      echo ""
+      sv init < /dev/tty
+      return
+    else
+      ui_info "  No interactive terminal detected — skipping onboarding."
+      ui_info "  Run 'sv init' to configure Seedvault."
+      return
+    fi
   fi
 
   ui_info "  Starting interactive setup..."
