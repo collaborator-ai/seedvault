@@ -171,15 +171,10 @@ run_onboarding() {
     return
   fi
 
-  if [[ -r /dev/tty ]] && [[ -w /dev/tty ]]; then
-    ui_info "  Starting interactive setup..."
-    echo ""
-    exec </dev/tty
-    exec sv init
-  else
-    ui_info "  No interactive terminal available — skipping onboarding."
-    ui_info "  Run 'sv init' to configure Seedvault."
-  fi
+  # sv init opens /dev/tty directly for input, so this works even via curl | bash.
+  ui_info "  Starting interactive setup..."
+  echo ""
+  sv init
 }
 
 # ---------------------------------------------------------------------------

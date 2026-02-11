@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "--version" || cmd === "-v") {
-    console.log("0.1.3");
+    console.log("0.2.1");
     return;
   }
 

@@ -1,5 +1,6 @@
 import * as readline from "readline/promises";
-import { stdin, stdout } from "process";
+import { stdout } from "process";
+import * as fs from "fs";
 import { configExists, saveConfig, type Config } from "../config.js";
 import { createClient } from "../client.js";
 
@@ -78,8 +79,16 @@ export async function init(args: string[]): Promise<void> {
     return;
   }
 
-  // Interactive mode
-  const rl = readline.createInterface({ input: stdin, output: stdout });
+  // Interactive mode — open /dev/tty directly so this works even when
+  // stdin is a pipe (e.g. curl | bash). Falls back to process.stdin on Windows.
+  let input: NodeJS.ReadableStream;
+  try {
+    const fd = fs.openSync("/dev/tty", "r");
+    input = fs.createReadStream("", { fd });
+  } catch {
+    input = process.stdin;
+  }
+  const rl = readline.createInterface({ input, output: stdout });
 
   try {
     console.log("Seedvault Setup\n");
