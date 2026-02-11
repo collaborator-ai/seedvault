@@ -8,8 +8,8 @@ import { createClient } from "../client.js";
  * sv init
  *   Interactive:  prompts for server URL, name, optional invite code
  *   Non-interactive:
- *     sv init --server URL --token TOKEN --username U  (already have a token)
- *     sv init --server URL --name NAME [--invite C]    (signup via API)
+ *     sv init --server URL --token TOKEN              (already have a token)
+ *     sv init --server URL --name NAME [--invite C]   (signup via API)
  */
 export async function init(args: string[]): Promise<void> {
   // Parse flags
@@ -23,18 +23,13 @@ export async function init(args: string[]): Promise<void> {
 
   // Non-interactive: --server + --token
   if (flags.server && flags.token) {
-    // Verify the token works by hitting the server
     const client = createClient(flags.server, flags.token);
+    let username: string;
     try {
-      await client.health();
+      const me = await client.me();
+      username = me.username;
     } catch {
-      console.error(`Could not reach server at ${flags.server}`);
-      process.exit(1);
-    }
-
-    const username = flags["username"] || "";
-    if (!username) {
-      console.error("When using --token, also pass --username");
+      console.error(`Could not authenticate with server at ${flags.server}`);
       process.exit(1);
     }
 
@@ -109,11 +104,19 @@ export async function init(args: string[]): Promise<void> {
     const hasToken = await rl.question("Do you already have a token? (y/N): ");
 
     if (hasToken.toLowerCase() === "y") {
-      const token = await rl.question("Token: ");
-      const username = await rl.question("Username: ");
-      const config: Config = { server, token: token.trim(), username: username.trim(), collections: [] };
+      const token = (await rl.question("Token: ")).trim();
+      const authedClient = createClient(server, token);
+      let username: string;
+      try {
+        const me = await authedClient.me();
+        username = me.username;
+      } catch {
+        console.error("  Token is invalid or server rejected it.");
+        process.exit(1);
+      }
+      const config: Config = { server, token, username, collections: [] };
       saveConfig(config);
-      console.log("\nSeedvault configured.");
+      console.log(`\nSeedvault configured as '${username}'`);
     } else {
       const name = await rl.question("Username (e.g. your-name-notes): ");
       const invite = await rl.question("Invite code (leave blank if first user): ");

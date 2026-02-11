@@ -3,6 +3,8 @@
  */
 
 export interface SeedvaultClient {
+  /** GET /v1/me — resolve token to username */
+  me(): Promise<MeResponse>;
   /** POST /v1/signup */
   signup(name: string, invite?: string): Promise<SignupResponse>;
   /** POST /v1/invites */
@@ -22,6 +24,11 @@ export interface SeedvaultClient {
 }
 
 // --- Response types ---
+
+export interface MeResponse {
+  username: string;
+  createdAt: string;
+}
 
 export interface SignupResponse {
   contributor: { username: string; createdAt: string };
@@ -112,6 +119,11 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
   }
 
   return {
+    async me(): Promise<MeResponse> {
+      const res = await request("GET", "/v1/me");
+      return res.json();
+    },
+
     async signup(name: string, invite?: string): Promise<SignupResponse> {
       const body: Record<string, string> = { name };
       if (invite) body.invite = invite;

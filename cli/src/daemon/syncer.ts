@@ -5,6 +5,8 @@ import type { CollectionConfig } from "../config.js";
 import type { FileEvent } from "./watcher.js";
 import { RetryQueue } from "./queue.js";
 
+const SYNC_CONCURRENCY = 10;
+
 export interface SyncerOptions {
   client: SeedvaultClient;
   username: string;
@@ -75,9 +77,10 @@ export class Syncer {
         serverMap.set(f.path, f.modifiedAt);
       }
 
-      // Walk local directory for .md files
+      // Phase 1: Prepare — read local files and decide what to upload
       const localFiles = await walkMd(collection.path);
       const localServerPaths = new Set<string>();
+      const toUpload: { serverPath: string; content: string }[] = [];
 
       for (const localFile of localFiles) {
         const relPath = toPosixPath(relative(collection.path, localFile.path));
@@ -86,7 +89,6 @@ export class Syncer {
 
         const serverMod = serverMap.get(serverPath);
         if (serverMod) {
-          // File exists on server — compare mtime
           const serverDate = new Date(serverMod).getTime();
           const localDate = localFile.mtimeMs;
           if (localDate <= serverDate) {
@@ -95,32 +97,33 @@ export class Syncer {
           }
         }
 
-        // Upload
         const content = await readFile(localFile.path, "utf-8");
+        toUpload.push({ serverPath, content });
+      }
+
+      // Phase 2: Upload with bounded concurrency
+      await pooled(toUpload, SYNC_CONCURRENCY, async (item) => {
         try {
-          await this.client.putFile(this.username, serverPath, content);
+          await this.client.putFile(this.username, item.serverPath, item.content);
           uploaded++;
         } catch {
-          // If server unreachable, queue it
           this.queue.enqueue({
             type: "put",
             username: this.username,
-            serverPath,
-            content,
+            serverPath: item.serverPath,
+            content: item.content,
             queuedAt: new Date().toISOString(),
           });
         }
-      }
+      });
 
-      // Delete server files that no longer exist locally
-      for (const f of serverFiles) {
-        if (localServerPaths.has(f.path)) continue;
-
+      // Phase 3: Delete server files that no longer exist locally
+      const toDelete = serverFiles.filter((f) => !localServerPaths.has(f.path));
+      await pooled(toDelete, SYNC_CONCURRENCY, async (f) => {
         try {
           await this.client.deleteFile(this.username, f.path);
           deleted++;
         } catch {
-          // If server unreachable, queue it
           this.queue.enqueue({
             type: "delete",
             username: this.username,
@@ -129,7 +132,7 @@ export class Syncer {
             queuedAt: new Date().toISOString(),
           });
         }
-      }
+      });
 
       this.log(
         `  '${collection.name}': ${uploaded} uploaded, ${skipped} up-to-date, ${deleted} deleted`
@@ -157,7 +160,7 @@ export class Syncer {
         collection.name + "/"
       );
 
-      for (const f of serverFiles) {
+      await pooled(serverFiles, SYNC_CONCURRENCY, async (f) => {
         try {
           await this.client.deleteFile(this.username, f.path);
           deleted++;
@@ -171,7 +174,7 @@ export class Syncer {
           });
           queued++;
         }
-      }
+      });
 
       this.log(`  '${collection.name}': ${deleted} deleted, ${queued} queued`);
     } catch (e: unknown) {
@@ -233,6 +236,17 @@ async function walkMd(dir: string): Promise<LocalFile[]> {
   const results: LocalFile[] = [];
   await walkDirRecursive(dir, results);
   return results;
+}
+
+async function pooled<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  async function worker() {
+    while (i < items.length) {
+      const idx = i++;
+      await fn(items[idx]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
 }
 
 async function walkDirRecursive(dir: string, results: LocalFile[]): Promise<void> {

@@ -130,6 +130,16 @@ export function createApp(storageRoot: string): Hono {
 	const authed = new Hono();
 	authed.use("*", authMiddleware);
 
+	// --- Me (token → username lookup) ---
+
+	authed.get("/v1/me", (c) => {
+		const { contributor } = getAuthCtx(c);
+		return c.json({
+			username: contributor.username,
+			createdAt: contributor.created_at,
+		});
+	});
+
 	// --- Invites ---
 
 	authed.post("/v1/invites", (c) => {
