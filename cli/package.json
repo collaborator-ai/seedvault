@@ -1,14 +1,20 @@
 {
   "name": "@seedvault/cli",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "type": "module",
   "bin": {
-    "sv": "./src/index.ts"
+    "sv": "bin/sv.mjs"
   },
   "scripts": {
+    "build": "bun build src/index.ts --outfile dist/sv.js --target bun",
     "dev": "bun run src/index.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
   },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "dependencies": {
     "chokidar": "^4"
   },

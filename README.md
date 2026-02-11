@@ -26,7 +26,7 @@ Vault (= the server instance)
 ```
 
 - **Vault:** A single Seedvault deployment. One server, one storage root, one set of API endpoints. Auth metadata lives in SQLite; file content lives on the filesystem.
-- **Contributor:** A contributor's namespace within the vault. Each contributor has one owner and one write token. Contributors are the unit of write isolation — no shared contributors. Each contributor maps to a directory on disk.
+- **Contributor:** A contributor's namespace within the vault. Each contributor has one owner and one or more contributor-scoped tokens. Contributors are the unit of write isolation — no shared contributors. Each contributor maps to a directory on disk.
 - **Collection:** A synced local folder within a contributor. Each collection has a local `path` and an in-vault `name` (e.g., `notes`, `work-docs`) that becomes its path prefix within the contributor. `name` defaults to the folder's basename and can be overridden to avoid collisions.
 - **Files:** Stored within a collection, identified by relative path (e.g., `notes/seedvault.md`, where `notes` is the collection name). On the server, paths are flat — there's no collection-level API, just file paths prefixed by collection name.
 
@@ -393,10 +393,12 @@ The server validates all paths on write **before** touching the filesystem. This
 
 ## Daemon Behavior
 
-1. **On startup:** full sync — scan configured collections, PUT any files not yet on server (compare via file listing + mtime)
-2. **After startup:** filesystem watcher — PUT on create/modify, DELETE on delete
-3. **Reconnect logic:** if server is unreachable, queue changes and retry with backoff
-4. **Config:** server URL, token, list of collections to watch
+1. **Startup reconciliation:** runs an initial sync over configured collections (upload newer/missing files, delete remote files that no longer exist locally).
+2. **Can start with zero collections:** daemon runs idle and waits for collections to be added.
+3. **Live config reload:** daemon polls config and applies collection add/remove changes without restart.
+4. **Filesystem watcher:** PUT on create/modify, DELETE on delete for watched collections.
+5. **Collection removal behavior:** when a collection is removed while daemon is running, the daemon stops watching it and deletes that collection prefix from the server.
+6. **Retry queue:** network failures are queued in memory and retried with backoff. Queue is not persisted across daemon restarts; initial sync reconciles state on restart.
 
 ### Configuration
 
@@ -408,6 +410,7 @@ The daemon watches one or more local directories as collections. Each collection
 {
   "server": "https://vault.example.com",
   "token": "sv_...",
+  "contributorId": "contributor_abc123",
   "collections": [
     {"path": "~/notes", "name": "notes"},
     {"path": "~/work/docs", "name": "work-docs"},
@@ -416,17 +419,15 @@ The daemon watches one or more local directories as collections. Each collection
 }
 ```
 
-**`name` defaults to the folder basename.** When there's no ambiguity, shorthand works:
+**`name` defaults to the folder basename.** Explicit names are only needed when basenames collide (e.g., two directories both named `notes`).
 
-```json
-{
-  "server": "https://vault.example.com",
-  "token": "sv_...",
-  "collections": ["~/notes", "~/meetings"]
-}
-```
+### Collection overlap policy
 
-This auto-names them `notes` and `meetings`. Explicit names are only needed when basenames collide (e.g., two directories both named `notes`).
+Collections must not overlap by path (no parent/child nesting at the same time).
+
+- Adding a **child** collection under an existing parent collection is rejected.
+- Adding a **parent** collection removes any already-configured child collections first, then adds the parent.
+- If config is edited manually into an overlapping state, daemon normalizes to a non-overlapping set (parents win) and logs a warning.
 
 ### Path mapping
 
@@ -470,7 +471,7 @@ The installer:
 For agents and CI (non-interactive):
 ```bash
 curl -fsSL https://seedvault.ai/install.sh | bash -s -- --no-onboard
-sv init --server https://vault.example.com --token sv_...
+sv init --server https://vault.example.com --token sv_... --contributor-id contributor_abc123
 ```
 
 ### Commands
@@ -478,14 +479,14 @@ sv init --server https://vault.example.com --token sv_...
 **Setup:**
 ```bash
 sv init                          # Interactive first-time setup (server URL, signup/invite)
-sv init --server URL --token T   # Non-interactive setup (already have a token)
+sv init --server URL --token T --contributor-id ID  # Non-interactive setup (already have token)
 sv init --server URL --name me --invite CODE  # Non-interactive signup
 ```
 
 **Collection management:**
 ```bash
 sv add ~/notes                         # Add a collection (auto-name: "notes")
-sv add ~/work/docs --name work-docs    # Add with explicit collection name
+sv add ~/work/docs --name work-docs    # Add with explicit collection name; may remove overlapping child collections
 sv remove notes                         # Stop watching a collection
 sv collections                          # List configured collections
 ```
@@ -495,7 +496,7 @@ sv collections                          # List configured collections
 sv start                   # Start syncing (foreground)
 sv start -d                # Start syncing (background daemon)
 sv stop                    # Stop the daemon
-sv status                  # Show sync status, connected collections, server info
+sv status                  # Show daemon/config/server status
 ```
 
 **File operations (reads from server):**
@@ -519,6 +520,7 @@ Config lives at `~/.config/seedvault/config.json`:
 {
   "server": "https://vault.example.com",
   "token": "sv_...",
+  "contributorId": "contributor_abc123",
   "collections": [
     {"path": "/Users/yiliu/notes", "name": "notes"},
     {"path": "/Users/yiliu/work/docs", "name": "work-docs"}

@@ -50,6 +50,11 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === "--version" || cmd === "-v") {
+    console.log("0.1.3");
+    return;
+  }
+
   try {
     switch (cmd) {
       case "init":
