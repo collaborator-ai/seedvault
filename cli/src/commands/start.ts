@@ -1,4 +1,4 @@
-import { writeFileSync, unlinkSync, existsSync } from "fs";
+import { writeFileSync, unlinkSync } from "fs";
 import type { FSWatcher } from "chokidar";
 import {
   loadConfig,
@@ -9,19 +9,8 @@ import {
 } from "../config.js";
 import { createClient } from "../client.js";
 import { createWatcher, type FileEvent } from "../daemon/watcher.js";
-import { PollWatcher } from "../daemon/poll-watcher.js";
 import { Syncer } from "../daemon/syncer.js";
 import { installService } from "../daemon/service.js";
-
-/**
- * Detect if running inside a container where inotify may not work.
- */
-function shouldUsePollWatcher(): boolean {
-  if (process.env.SEEDVAULT_USE_POLLING === "1") return true;
-  if (process.env.SEEDVAULT_USE_POLLING === "0") return false;
-  // Docker container detection
-  return existsSync("/.dockerenv");
-}
 
 /**
  * sv start [-f]
@@ -111,19 +100,11 @@ async function startForeground(): Promise<void> {
     }
   }
 
-  const usePollWatcher = shouldUsePollWatcher();
   let watcher: FSWatcher | null = null;
-  let pollWatcher: PollWatcher | null = null;
-
   const rebuildWatcher = async (collections: CollectionConfig[]): Promise<void> => {
-    // Clean up existing watchers
     if (watcher) {
       await watcher.close();
       watcher = null;
-    }
-    if (pollWatcher) {
-      pollWatcher.stop();
-      pollWatcher = null;
     }
 
     if (collections.length === 0) {
@@ -131,19 +112,11 @@ async function startForeground(): Promise<void> {
       return;
     }
 
-    const handleEvent = (event: FileEvent) => {
+    watcher = createWatcher(collections, (event: FileEvent) => {
       syncer.handleEvent(event).catch((e) => {
         log(`Error handling ${event.type} for ${event.serverPath}: ${(e as Error).message}`);
       });
-    };
-
-    if (usePollWatcher) {
-      log("Using poll-based watcher (container detected)");
-      pollWatcher = new PollWatcher(collections, handleEvent, 1000);
-      await pollWatcher.start();
-    } else {
-      watcher = createWatcher(collections, handleEvent);
-    }
+    });
     log(`Watching ${collections.length} collection(s): ${collections.map((f) => f.name).join(", ")}`);
   };
 
@@ -247,7 +220,6 @@ async function startForeground(): Promise<void> {
     log("Shutting down...");
     clearInterval(pollTimer);
     if (watcher) void watcher.close();
-    if (pollWatcher) pollWatcher.stop();
     syncer.stop();
 
     // Clean up PID file
