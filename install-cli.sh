@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage: curl -fsSL https://seedvault.ai/install-cli.sh | bash
 #    or: curl -fsSL https://seedvault.ai/install-cli.sh | bash -s -- --no-onboard
 
-INSTALLER_VERSION="0.1.0"
+INSTALLER_VERSION="0.2.0"
 PACKAGE_NAME="@seedvault/cli"
 BUN_INSTALL_URL="https://bun.sh/install"
 CONFIG_DIR="$HOME/.config/seedvault"

@@ -4,7 +4,7 @@ set -euo pipefail
 # Seedvault CLI uninstaller
 # Usage: curl -fsSL https://seedvault.ai/uninstall-cli.sh | bash
 
-UNINSTALLER_VERSION="0.1.0"
+UNINSTALLER_VERSION="0.2.0"
 PACKAGE_NAME="@seedvault/cli"
 CONFIG_DIR="$HOME/.config/seedvault"
 PID_FILE="$CONFIG_DIR/daemon.pid"
