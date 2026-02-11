@@ -152,6 +152,15 @@
         return root;
       }
 
+      function countFiles(node) {
+        let count = 0;
+        for (const key of Object.keys(node)) {
+          if (key === "__file") { count++; continue; }
+          count += countFiles(node[key]);
+        }
+        return count;
+      }
+
       function renderTree(node, parentUl, username, depth) {
         const keys = Object.keys(node).filter((k) => k !== "__file").sort((a, b) => {
           const aDir = Object.keys(node[a]).some((k) => k !== "__file");
@@ -174,7 +183,8 @@
             row.onclick = () => loadContent(username, child.__file, row);
           } else {
             const sub = document.createElement("ul");
-            row.innerHTML = '<span class="arrow">&#9660;</span>' + key;
+            const fileCount = countFiles(child);
+            row.innerHTML = '<span class="arrow">&#9660;</span>' + key + ' <span style="opacity:0.5">(' + fileCount + ')</span>';
             row.onclick = () => {
               sub.classList.toggle("collapsed");
               row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
@@ -216,6 +226,12 @@
         renderTree(tree, sub, username, 1);
         markActiveRow();
         if (!silent) status(files.length + " file(s)");
+        // Update contributor row with file count
+        const row = sub.parentElement && sub.parentElement.querySelector(".tree-row");
+        if (row) {
+          const arrow = row.querySelector(".arrow").outerHTML;
+          row.innerHTML = arrow + username + ' <span style="opacity:0.5">(' + files.length + ')</span>';
+        }
       }
 
       async function loadContributors() {
