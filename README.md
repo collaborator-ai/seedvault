@@ -7,8 +7,8 @@
 Seedvault is a **pooled markdown sync service**. It keeps markdown files from multiple contributors in sync with a central server, and provides real-time read access to authorized consumers.
 
 ## Core Principles
-- **Bank sovereignty:** Each bank has one owner. Only the owner's daemon can write. Everyone else gets read-only access.
-- **Folder-level sync:** Contributors add folders to watch. Everything in them syncs. No per-file permissions.
+- **Contributor sovereignty:** Each contributor has one owner. Only the owner's daemon can write. Everyone else gets read-only access.
+- **Collection-level sync:** Contributors add collections (local folders) to sync. Everything in them syncs. No per-file permissions.
 - **Plain files on disk:** Server stores markdown as-is on the filesystem. Enables direct indexing by [QMD](https://github.com/tobi/qmd) for hybrid search (BM25 + semantic + LLM re-ranking).
 - **Open source, self-hostable.** Collaborator runs hosted instances for its users.
 
@@ -20,15 +20,15 @@ Seedvault is a **pooled markdown sync service**. It keeps markdown files from mu
 
 ```
 Vault (= the server instance)
-  └── Bank (= per contributor, one owner)
-        └── Collection (= one watched folder, identified by label)
+  └── Contributor (= one ownership boundary)
+        └── Collection (= one synced local folder + in-vault collection name)
               └── Files (identified by path within collection)
 ```
 
 - **Vault:** A single Seedvault deployment. One server, one storage root, one set of API endpoints. Auth metadata lives in SQLite; file content lives on the filesystem.
-- **Bank:** A contributor's namespace within the vault. Each bank has one owner and one write token. Banks are the unit of write isolation — no shared banks. Each bank maps to a directory on disk.
-- **Collection:** A watched folder that the daemon syncs to the server. Each collection has a **label** (e.g., `notes`, `work-docs`) that becomes its path prefix within the bank. The label defaults to the folder's basename. Collections are not a server-side entity — they're a daemon concept that manifests as top-level subdirectories within a bank.
-- **Files:** Stored within a collection, identified by a relative path (e.g., `notes/seedvault.md`, where `notes` is the collection label). On the server, paths are flat — there's no collection-level API, just file paths that happen to be prefixed by the collection label.
+- **Contributor:** A contributor's namespace within the vault. Each contributor has one owner and one write token. Contributors are the unit of write isolation — no shared contributors. Each contributor maps to a directory on disk.
+- **Collection:** A synced local folder within a contributor. Each collection has a local `path` and an in-vault `name` (e.g., `notes`, `work-docs`) that becomes its path prefix within the contributor. `name` defaults to the folder's basename and can be overridden to avoid collisions.
+- **Files:** Stored within a collection, identified by relative path (e.g., `notes/seedvault.md`, where `notes` is the collection name). On the server, paths are flat — there's no collection-level API, just file paths prefixed by collection name.
 
 ---
 
@@ -38,21 +38,21 @@ Vault (= the server instance)
 
 **1. Daemon (client-side)**
 - Long-running process installed on any machine with markdown to share
-- Watches configured folders via filesystem watcher (chokidar)
+- Watches configured collections (local folders) via filesystem watcher (chokidar)
 - On file change: PUTs updated content to server
 - On file delete: sends DELETE to server
-- Authenticates with a token that has `write` role scoped to its bank
+- Authenticates with a token that has `write` role scoped to its contributor
 
 **2. Server (central)**
 - Receives file updates from daemons, writes them as plain files on disk
-- Mirrors bank/path structure: `<storage_root>/<bank_id>/<path>`
+- Mirrors contributor/path structure: `<storage_root>/<contributor_id>/<path>`
 - Serves files to authorized consumers via HTTP
 - Pushes change events to connected consumers via SSE
-- Auth and bank metadata in SQLite; file content on the filesystem
+- Auth and contributor metadata in SQLite; file content on the filesystem
 
 **3. QMD (search/retrieval)**
 - [QMD](https://github.com/tobi/qmd) runs alongside the server, indexing the file tree
-- Each bank is registered as a QMD collection
+- Each contributor is registered as a QMD collection
 - Provides hybrid search: BM25 full-text + vector semantic + LLM re-ranking
 - Seedvault's search endpoint delegates to QMD — Seedvault does not own search
 
@@ -80,36 +80,36 @@ Vault (= the server instance)
 
 ## Auth Model
 
-Single token type (`sv_...`), always scoped to a bank. Every token can write to its own bank and read all banks. Tokens are bearer tokens passed via `Authorization: Bearer <token>` header.
+Single token type (`sv_...`), always scoped to a contributor. Every token can write to its own contributor and read all contributors. Tokens are bearer tokens passed via `Authorization: Bearer <token>` header.
 
 ### Permissions
 
 Every token has the same permissions:
-- **Write** files to its own bank
-- **Read** files from any bank
-- **List** banks, search, subscribe to SSE events
+- **Write** files to its own contributor
+- **Read** files from any contributor
+- **List** contributors, search, subscribe to SSE events
 
-The first bank created (via signup without invite) is the **operator**. The operator can generate invite codes for others.
+The first contributor created (via signup without invite) is the **operator**. The operator can generate invite codes for others.
 
 ### Token storage
 
 Tokens are SHA-256 hashed before storage. The raw token is returned **once** at creation and never stored.
 
 ```sql
-api_keys (id, key_hash, label, bank_id, created_at, last_used_at)
+api_keys (id, key_hash, label, contributor_id, created_at, last_used_at)
 ```
 
-Every token has a `bank_id` — there are no unscoped tokens.
+Every token has a `contributor_id` — there are no unscoped tokens.
 
 ### Auth check logic
 
 ```
 POST .../signup                      → no auth (requires invite code, except first user)
 POST .../invites                     → operator only
-PUT/DELETE .../banks/:bankId/files/* → bank_id matches
-GET .../banks/:bankId/files/*       → any valid token
-GET .../banks/:bankId/files         → any valid token
-GET .../banks                       → any valid token
+PUT/DELETE .../contributors/:contributorId/files/* → contributor_id matches
+GET .../contributors/:contributorId/files/*       → any valid token
+GET .../contributors/:contributorId/files         → any valid token
+GET .../contributors                       → any valid token
 GET .../events                      → any valid token
 GET .../search                      → any valid token
 GET /health                         → no auth
@@ -124,7 +124,7 @@ Base URL: `/v1`
 ### Signup & Invites
 
 #### `POST /v1/signup`
-Create a new bank and get a token. The first signup requires no invite. All subsequent signups require an invite code.
+Create a new contributor and get a token. The first signup requires no invite. All subsequent signups require an invite code.
 
 **Request body:**
 ```json
@@ -144,8 +144,8 @@ First user omits `invite`:
 **Response: `201 Created`**
 ```json
 {
-  "bank": {
-    "id": "bank_abc123",
+  "contributor": {
+    "id": "contributor_abc123",
     "name": "yiliu-notes",
     "createdAt": "2026-02-10T22:00:00Z"
   },
@@ -153,7 +153,7 @@ First user omits `invite`:
 }
 ```
 
-The bank's directory is created on disk at `<storage_root>/bank_abc123/`, and registered as a QMD collection. The token is returned **once**.
+The contributor's directory is created on disk at `<storage_root>/contributor_abc123/`, and registered as a QMD collection. The token is returned **once**.
 
 ---
 
@@ -170,15 +170,15 @@ Generate an invite code. Requires operator token (the first user).
 
 ---
 
-#### `GET /v1/banks`
-List all banks in the vault. Requires any valid token.
+#### `GET /v1/contributors`
+List all contributors in the vault. Requires any valid token.
 
 **Response: `200 OK`**
 ```json
 {
-  "banks": [
-    {"id": "bank_abc123", "name": "yiliu-notes", "createdAt": "2026-02-10T22:00:00Z"},
-    {"id": "bank_def456", "name": "collin-workspace", "createdAt": "2026-02-10T22:30:00Z"}
+  "contributors": [
+    {"id": "contributor_abc123", "name": "yiliu-notes", "createdAt": "2026-02-10T22:00:00Z"},
+    {"id": "contributor_def456", "name": "collin-workspace", "createdAt": "2026-02-10T22:30:00Z"}
   ]
 }
 ```
@@ -199,10 +199,10 @@ Health check. No auth required.
 
 ### Write (Daemon → Server)
 
-Requires a token scoped to the target bank.
+Requires a token scoped to the target contributor.
 
-#### `PUT /v1/banks/:bankId/files/*path`
-Create or update a file. Path must end in `.md`. The server writes the content to disk at `<storage_root>/<bankId>/<path>`, creating intermediate directories as needed. Uses atomic write (temp file + rename) to prevent partial writes. Max file size: **10 MB**. Concurrent writes to the same bank use last-write-wins.
+#### `PUT /v1/contributors/:contributorId/files/*path`
+Create or update a file. Path must end in `.md`. The server writes the content to disk at `<storage_root>/<contributorId>/<path>`, creating intermediate directories as needed. Uses atomic write (temp file + rename) to prevent partial writes. Max file size: **10 MB**. Concurrent writes to the same contributor use last-write-wins.
 
 **Request body:** Raw markdown content.
 **Headers:** `Content-Type: text/markdown`
@@ -218,7 +218,7 @@ Create or update a file. Path must end in `.md`. The server writes the content t
 
 ---
 
-#### `DELETE /v1/banks/:bankId/files/*path`
+#### `DELETE /v1/contributors/:contributorId/files/*path`
 Delete a file from disk. Removes empty parent directories.
 
 **Response: `204 No Content`**
@@ -229,8 +229,8 @@ Delete a file from disk. Removes empty parent directories.
 
 Requires any valid token.
 
-#### `GET /v1/banks/:bankId/files`
-List files in a bank. Walks the bank's directory on disk and returns a flat list.
+#### `GET /v1/contributors/:contributorId/files`
+List files in a contributor. Walks the contributor's directory on disk and returns a flat list.
 
 **Query params:**
 - `prefix` (optional) — filter to files whose path starts with this prefix
@@ -247,7 +247,7 @@ List files in a bank. Walks the bank's directory on disk and returns a flat list
 
 ---
 
-#### `GET /v1/banks/:bankId/files/*path`
+#### `GET /v1/contributors/:contributorId/files/*path`
 Read a single file from disk.
 
 **Response: `200 OK`**
@@ -257,11 +257,11 @@ Read a single file from disk.
 ---
 
 #### `GET /v1/search?q=<query>`
-Search across all banks in the vault. Delegates to QMD, which indexes the server's file tree.
+Search across all contributors in the vault. Delegates to QMD, which indexes the server's file tree.
 
 **Query params:**
 - `q` (required) — search query
-- `bank` (optional) — limit to a specific bank (maps to QMD collection)
+- `contributor` (optional) — limit to a specific contributor (maps to QMD collection)
 - `limit` (optional, default 10) — max results
 
 **Response: `200 OK`**
@@ -269,7 +269,7 @@ Search across all banks in the vault. Delegates to QMD, which indexes the server
 {
   "results": [
     {
-      "bank": "bank_abc123",
+      "contributor": "contributor_abc123",
       "path": "notes/seedvault.md",
       "snippet": "Seedvault is a pooled markdown server...",
       "score": 0.92
@@ -283,16 +283,16 @@ Search across all banks in the vault. Delegates to QMD, which indexes the server
 ### SSE (Server → Consumer)
 
 #### `GET /v1/events`
-Opens a Server-Sent Events stream. Requires any valid token. Streams events for all banks.
+Opens a Server-Sent Events stream. Requires any valid token. Streams events for all contributors.
 
 **Event types:**
 
 ```
 event: file_updated
-data: {"bank":"bank_abc123","path":"notes/seedvault.md","size":2048,"modifiedAt":"2026-02-10T22:05:00Z"}
+data: {"contributor":"contributor_abc123","path":"notes/seedvault.md","size":2048,"modifiedAt":"2026-02-10T22:05:00Z"}
 
 event: file_deleted
-data: {"bank":"bank_abc123","path":"notes/old-idea.md"}
+data: {"contributor":"contributor_abc123","path":"notes/old-idea.md"}
 ```
 
 Consumer uses these events to trigger local reindexing, cache invalidation, etc.
@@ -303,35 +303,35 @@ Consumer uses these events to trigger local reindexing, cache invalidation, etc.
 
 ### Filesystem (content)
 
-Files are stored as plain markdown on the server's filesystem, mirroring bank and path structure:
+Files are stored as plain markdown on the server's filesystem, mirroring contributor and path structure:
 
 ```
 <storage_root>/
-  bank_abc123/           # yiliu's bank
+  contributor_abc123/           # yiliu's contributor
     notes/               # from ~/notes
       seedvault.md
       collaborator.md
     work-docs/           # from ~/work/docs
       api/
         design.md
-  bank_def456/           # collin's bank
+  contributor_def456/           # collin's contributor
     memory/              # from ~/memory
       2026-02-10.md
     journal/             # from ~/journal
       MEMORY.md
 ```
 
-- One directory per bank under the storage root
-- Within each bank, each watched folder maps to a labeled subdirectory
+- One directory per contributor under the storage root
+- Within each contributor, each collection maps to a named subdirectory
 - Intermediate directories are created on write and cleaned up on delete
 - Atomic writes via temp file + rename
 
 ### SQLite (auth & metadata)
 
-A single SQLite database stores bank records and API keys. No file content in the database.
+A single SQLite database stores contributor records and API keys. No file content in the database.
 
 ```sql
-CREATE TABLE banks (
+CREATE TABLE contributors (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL UNIQUE,
   is_operator BOOLEAN NOT NULL DEFAULT FALSE,
@@ -342,27 +342,27 @@ CREATE TABLE api_keys (
   id TEXT PRIMARY KEY,
   key_hash TEXT UNIQUE NOT NULL,
   label TEXT NOT NULL,
-  bank_id TEXT NOT NULL REFERENCES banks(id),
+  contributor_id TEXT NOT NULL REFERENCES contributors(id),
   created_at TEXT NOT NULL,
   last_used_at TEXT
 );
 
 CREATE TABLE invites (
   id TEXT PRIMARY KEY,
-  created_by TEXT NOT NULL REFERENCES banks(id),
+  created_by TEXT NOT NULL REFERENCES contributors(id),
   created_at TEXT NOT NULL,
   used_at TEXT,
-  used_by TEXT REFERENCES banks(id)
+  used_by TEXT REFERENCES contributors(id)
 );
 ```
 
 ### QMD (search & retrieval)
 
-[QMD](https://github.com/tobi/qmd) runs alongside the server and indexes the file tree directly. Each bank is a QMD collection:
+[QMD](https://github.com/tobi/qmd) runs alongside the server and indexes the file tree directly. Each contributor is a QMD collection:
 
 ```bash
-qmd collection add <storage_root>/bank_abc123 --name yiliu-notes
-qmd collection add <storage_root>/bank_def456 --name collin-workspace
+qmd collection add <storage_root>/contributor_abc123 --name yiliu-notes
+qmd collection add <storage_root>/contributor_def456 --name collin-workspace
 ```
 
 QMD provides:
@@ -374,7 +374,7 @@ The server triggers `qmd update` after file writes to keep the index current, or
 
 ### Path rules
 
-Paths are relative to the bank root. Always forward slashes, never a leading slash.
+Paths are relative to the contributor root. Always forward slashes, never a leading slash.
 
 **Valid paths:**
 - `notes/seedvault.md`
@@ -393,54 +393,56 @@ The server validates all paths on write **before** touching the filesystem. This
 
 ## Daemon Behavior
 
-1. **On startup:** full sync — scan configured folders, PUT any files not yet on server (compare via file listing + mtime)
+1. **On startup:** full sync — scan configured collections, PUT any files not yet on server (compare via file listing + mtime)
 2. **After startup:** filesystem watcher — PUT on create/modify, DELETE on delete
 3. **Reconnect logic:** if server is unreachable, queue changes and retry with backoff
-4. **Config:** server URL, token, list of folders to watch
+4. **Config:** server URL, token, list of collections to watch
 
 ### Configuration
 
-The daemon watches one or more local directories. Each folder has a **label** that becomes its path prefix on the server, preventing collisions between directories.
+The daemon watches one or more local directories as collections. Each collection has:
+- `path`: local folder path on disk
+- `name`: in-vault collection name/prefix (defaults to local folder basename)
 
 ```json
 {
   "server": "https://vault.example.com",
   "token": "sv_...",
-  "folders": [
-    {"path": "~/notes", "label": "notes"},
-    {"path": "~/work/docs", "label": "work-docs"},
-    {"path": "~/meetings", "label": "meetings"}
+  "collections": [
+    {"path": "~/notes", "name": "notes"},
+    {"path": "~/work/docs", "name": "work-docs"},
+    {"path": "~/meetings", "name": "meetings"}
   ]
 }
 ```
 
-**Label defaults to the folder's basename.** When there's no ambiguity, the shorthand works:
+**`name` defaults to the folder basename.** When there's no ambiguity, shorthand works:
 
 ```json
 {
   "server": "https://vault.example.com",
   "token": "sv_...",
-  "folders": ["~/notes", "~/meetings"]
+  "collections": ["~/notes", "~/meetings"]
 }
 ```
 
-This auto-labels them `notes` and `meetings`. Explicit labels are only needed when basenames collide (e.g., two directories both named `notes`).
+This auto-names them `notes` and `meetings`. Explicit names are only needed when basenames collide (e.g., two directories both named `notes`).
 
 ### Path mapping
 
-Each folder's label becomes the top-level prefix for its files on the server:
+Each collection name becomes the top-level prefix for its files on the server:
 
 ```
-Folder config: {"path": "~/work/docs", "label": "work-docs"}
+Collection config: {"path": "~/work/docs", "name": "work-docs"}
 Local file:    ~/work/docs/api/design.md
 Server path:   work-docs/api/design.md
 
-Folder config: {"path": "~/notes"}  (auto-labeled "notes")
+Collection config: {"path": "~/notes"}  (auto-named "notes")
 Local file:    ~/notes/seedvault.md
 Server path:   notes/seedvault.md
 ```
 
-This mirrors how [QMD](https://github.com/tobi/qmd) handles collections — each watched directory gets a unique label, and files within are identified by `(label, relative_path)`.
+This mirrors how [QMD](https://github.com/tobi/qmd) handles collections — each watched directory gets a unique collection name, and files within are identified by `(collection_name, relative_path)`.
 
 ### File filtering
 
@@ -451,7 +453,7 @@ This mirrors how [QMD](https://github.com/tobi/qmd) handles collections — each
 
 ## CLI (`sv`)
 
-The `sv` command is the unified CLI for Seedvault — daemon management, folder configuration, and admin operations.
+The `sv` command is the unified CLI for Seedvault — daemon management, collection configuration, and admin operations.
 
 ### Installation
 
@@ -480,12 +482,12 @@ sv init --server URL --token T   # Non-interactive setup (already have a token)
 sv init --server URL --name me --invite CODE  # Non-interactive signup
 ```
 
-**Folder management:**
+**Collection management:**
 ```bash
-sv add ~/notes                          # Watch a folder (auto-label: "notes")
-sv add ~/work/docs --label work-docs    # Watch with explicit label
-sv remove notes                         # Stop watching a folder
-sv folders                              # List configured folders
+sv add ~/notes                         # Add a collection (auto-name: "notes")
+sv add ~/work/docs --name work-docs    # Add with explicit collection name
+sv remove notes                         # Stop watching a collection
+sv collections                          # List configured collections
 ```
 
 **Daemon:**
@@ -493,19 +495,19 @@ sv folders                              # List configured folders
 sv start                   # Start syncing (foreground)
 sv start -d                # Start syncing (background daemon)
 sv stop                    # Stop the daemon
-sv status                  # Show sync status, connected folders, server info
+sv status                  # Show sync status, connected collections, server info
 ```
 
 **File operations (reads from server):**
 ```bash
-sv ls                      # List all files in your bank
+sv ls                      # List all files in your contributor
 sv ls notes/               # List files under a prefix
 sv cat notes/seedvault.md  # Read a file
 ```
 
 **Vault info:**
 ```bash
-sv banks                   # List all banks in the vault
+sv contributors            # List all contributors in the vault
 sv invite                  # Generate an invite code (operator only)
 ```
 
@@ -517,9 +519,9 @@ Config lives at `~/.config/seedvault/config.json`:
 {
   "server": "https://vault.example.com",
   "token": "sv_...",
-  "folders": [
-    {"path": "/Users/yiliu/notes", "label": "notes"},
-    {"path": "/Users/yiliu/work/docs", "label": "work-docs"}
+  "collections": [
+    {"path": "/Users/yiliu/notes", "name": "notes"},
+    {"path": "/Users/yiliu/work/docs", "name": "work-docs"}
   ]
 }
 ```
@@ -572,12 +574,12 @@ All persistent state lives under `DATA_DIR`:
 
 ```
 $DATA_DIR/
-  seedvault.db          # SQLite (banks, api_keys, invites)
+  seedvault.db          # SQLite (contributors, api_keys, invites)
   files/                # File storage root
-    bank_abc123/
+    contributor_abc123/
       notes/
         seedvault.md
-    bank_def456/
+    contributor_def456/
       ...
 ```
 
@@ -610,7 +612,7 @@ The `fly.toml` mounts the volume at `/data` and sets `DATA_DIR=/data`.
 QMD is installed in the Docker image alongside the server. On startup, the server:
 
 1. Initializes QMD if no index exists
-2. Registers each bank's directory as a QMD collection
+2. Registers each contributor's directory as a QMD collection
 3. After each file write/delete, triggers `qmd update` to re-index
 
 The search API endpoint (`GET /v1/search`) invokes QMD via its CLI (`qmd search --json`). For better performance, the server can optionally run QMD's MCP HTTP server as a sidecar process and query it directly.
@@ -642,9 +644,9 @@ All error responses use a consistent format:
 |------|---------|
 | `400` | Bad request — invalid path, missing required field, file too large, path doesn't end in `.md` |
 | `401` | Unauthorized — missing or invalid token |
-| `403` | Forbidden — token doesn't have permission (e.g., writing to another bank, non-operator generating invites) |
-| `404` | Not found — bank or file doesn't exist |
-| `409` | Conflict — bank name already taken (on signup) |
+| `403` | Forbidden — token doesn't have permission (e.g., writing to another contributor, non-operator generating invites) |
+| `404` | Not found — contributor or file doesn't exist |
+| `409` | Conflict — contributor name already taken (on signup) |
 | `413` | Payload too large — file exceeds 10 MB |
 
 ---
@@ -652,13 +654,13 @@ All error responses use a consistent format:
 ## MVP Scope
 
 **In:**
-- Vault with multiple banks (one per contributor)
+- Vault with multiple contributors (one per contributor)
 - Signup with invite system (first user is operator)
-- `sv` CLI with daemon, folder management, and vault commands
+- `sv` CLI with daemon, collection management, and vault commands
 - Curl-pipe-bash installer (`seedvault.ai/install.sh`)
-- PUT/DELETE/GET/list endpoints (bank-scoped)
+- PUT/DELETE/GET/list endpoints (contributor-scoped)
 - SSE event stream
-- Bank-scoped token auth (every token writes to its bank, reads all)
+- Contributor-scoped token auth (every token writes to its contributor, reads all)
 - Plain file storage on disk (10 MB max, last-write-wins)
 - QMD integration for search
 - Health check endpoint
@@ -666,9 +668,9 @@ All error responses use a consistent format:
 **Out (post-MVP):**
 - E2E encryption
 - Multi-vault server (multiple vaults per deployment)
-- Read-only tokens (consumers without a bank)
+- Read-only tokens (consumers without a contributor)
 - Token revocation
-- Bank deletion
+- Contributor deletion
 - Web UI for vault management
 - Version history / file diffing
 - Bulk sync optimization (hashing, delta transfer)
