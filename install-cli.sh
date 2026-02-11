@@ -5,6 +5,7 @@ set -euo pipefail
 # Usage: curl -fsSL https://seedvault.ai/install-cli.sh | bash
 #    or: curl -fsSL https://seedvault.ai/install-cli.sh | bash -s -- --no-onboard
 
+INSTALLER_VERSION="0.1.0"
 PACKAGE_NAME="@seedvault/cli"
 BUN_INSTALL_URL="https://bun.sh/install"
 CONFIG_DIR="$HOME/.config/seedvault"
@@ -187,12 +188,12 @@ run_onboarding() {
 banner() {
   printf "\n"
   printf "${BOLD}${CYAN}"
-  cat <<'ART'
+  cat <<EOF
   ╔═══════════════════════════╗
   ║     Seedvault CLI         ║
-  ║     Installer             ║
+  ║     Installer v${INSTALLER_VERSION}     ║
   ╚═══════════════════════════╝
-ART
+EOF
   printf "${RESET}\n"
 }
 
