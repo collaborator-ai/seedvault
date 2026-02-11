@@ -36,7 +36,7 @@ async function startForeground(): Promise<void> {
     config = normalizedConfig;
   }
 
-  const client = createClient(config.server, config.token);
+  let client = createClient(config.server, config.token);
 
   // Verify server reachable
   try {
@@ -81,7 +81,7 @@ async function startForeground(): Promise<void> {
   // Write PID file (useful for sv status / sv stop even in foreground)
   writeFileSync(getPidPath(), String(process.pid));
 
-  const syncer = new Syncer({
+  let syncer = new Syncer({
     client,
     username: config.username,
     collections: config.collections,
@@ -100,12 +100,6 @@ async function startForeground(): Promise<void> {
     }
   }
 
-  const onWatcherEvent = (event: FileEvent) => {
-    syncer.handleEvent(event).catch((e) => {
-      log(`Error handling ${event.type} for ${event.serverPath}: ${(e as Error).message}`);
-    });
-  };
-
   let watcher: FSWatcher | null = null;
   const rebuildWatcher = async (collections: CollectionConfig[]): Promise<void> => {
     if (watcher) {
@@ -118,15 +112,19 @@ async function startForeground(): Promise<void> {
       return;
     }
 
-    watcher = createWatcher(collections, onWatcherEvent);
+    watcher = createWatcher(collections, (event: FileEvent) => {
+      syncer.handleEvent(event).catch((e) => {
+        log(`Error handling ${event.type} for ${event.serverPath}: ${(e as Error).message}`);
+      });
+    });
     log(`Watching ${collections.length} collection(s): ${collections.map((f) => f.name).join(", ")}`);
   };
 
   await rebuildWatcher(config.collections);
 
-  let reloadingCollections = false;
+  let reloading = false;
   const pollTimer = setInterval(() => {
-    if (reloadingCollections) return;
+    if (reloading) return;
     let nextConfig: Config;
     try {
       nextConfig = loadConfig();
@@ -138,33 +136,79 @@ async function startForeground(): Promise<void> {
     ({ config: normalizedConfig, removedOverlappingCollections } = normalizeConfigCollections(nextConfig));
     maybeLogOverlapWarning(removedOverlappingCollections);
 
-    reloadingCollections = true;
+    // Detect core config changes (server, token, username)
+    const coreChanged =
+      normalizedConfig.server !== config.server ||
+      normalizedConfig.token !== config.token ||
+      normalizedConfig.username !== config.username;
 
+    if (!coreChanged) {
+      // Only check for collection changes
+      const { nextConfig: reconciledConfig, added, removed } = reconcileCollections(config, normalizedConfig);
+      if (added.length === 0 && removed.length === 0) return;
+
+      reloading = true;
+      void (async () => {
+        try {
+          log(
+            `Collections changed: +${added.map((c) => c.name).join(", ") || "none"}, -${removed
+              .map((c) => c.name)
+              .join(", ") || "none"}`
+          );
+
+          config = reconciledConfig;
+          syncer.setCollections(reconciledConfig.collections);
+          await rebuildWatcher(reconciledConfig.collections);
+
+          for (const collection of removed) {
+            await syncer.purgeCollection(collection);
+          }
+          for (const collection of added) {
+            await syncer.syncCollection(collection);
+          }
+        } catch (e: unknown) {
+          log(`Failed to reload collections: ${(e as Error).message}`);
+        } finally {
+          reloading = false;
+        }
+      })();
+      return;
+    }
+
+    // Core config changed — full reinitialize
+    reloading = true;
     void (async () => {
       try {
-        const { nextConfig: reconciledConfig, added, removed } = reconcileCollections(config, normalizedConfig);
-        if (added.length === 0 && removed.length === 0) return;
+        log("Config changed, reinitializing...");
+        if (config.server !== normalizedConfig.server) log(`  Server: ${config.server} -> ${normalizedConfig.server}`);
+        if (config.username !== normalizedConfig.username) log(`  Username: ${config.username} -> ${normalizedConfig.username}`);
+        if (config.token !== normalizedConfig.token) log(`  Token: updated`);
 
-        log(
-          `Collections changed: +${added.map((c) => c.name).join(", ") || "none"}, -${removed
-            .map((c) => c.name)
-            .join(", ") || "none"}`
-        );
+        // Stop old syncer
+        syncer.stop();
 
-        config = reconciledConfig;
-        syncer.setCollections(reconciledConfig.collections);
-        await rebuildWatcher(reconciledConfig.collections);
+        // Create new client and syncer
+        client = createClient(normalizedConfig.server, normalizedConfig.token);
+        config = normalizedConfig;
 
-        for (const collection of removed) {
-          await syncer.purgeCollection(collection);
-        }
-        for (const collection of added) {
-          await syncer.syncCollection(collection);
+        syncer = new Syncer({
+          client,
+          username: config.username,
+          collections: config.collections,
+          onLog: log,
+        });
+
+        await rebuildWatcher(config.collections);
+
+        if (config.collections.length > 0) {
+          log("Running sync after reinitialize...");
+          const { uploaded, skipped, deleted } = await syncer.initialSync();
+          log(`Sync complete: ${uploaded} uploaded, ${skipped} skipped, ${deleted} deleted`);
         }
       } catch (e: unknown) {
-        log(`Failed to reload collections from config: ${(e as Error).message}`);
+        log(`Failed to reinitialize: ${(e as Error).message}`);
       } finally {
-        reloadingCollections = false;
+        reloading = false;
       }
     })();
   }, 1500);

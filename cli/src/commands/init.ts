@@ -137,6 +137,8 @@ export async function init(args: string[]): Promise<void> {
   } finally {
     rl.close();
   }
+
+  process.exit(0);
 }
 
 function parseFlags(args: string[]): Record<string, string> {
