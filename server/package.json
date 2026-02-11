@@ -2,10 +2,19 @@
   "name": "@seedvault/server",
   "version": "0.1.0",
   "type": "module",
+  "bin": {
+    "seedvault-server": "bin/seedvault-server.mjs"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
-    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outfile dist/server.js --target bun && cp src/index.html dist/",
+    "dev": "DATA_DIR=./data bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "hono": "^4"

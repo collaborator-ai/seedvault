@@ -1,11 +1,12 @@
 import { join } from "path";
+import { homedir } from "os";
 import { mkdir } from "fs/promises";
 import { initDb, listContributors } from "./db.js";
 import { createApp } from "./routes.js";
 import { isQmdAvailable, syncContributors } from "./qmd.js";
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
-const DATA_DIR = process.env.DATA_DIR || "./data";
+const DATA_DIR = process.env.DATA_DIR || join(homedir(), ".seedvault", "data");
 
 const dbPath = join(DATA_DIR, "seedvault.db");
 const storageRoot = join(DATA_DIR, "files");
