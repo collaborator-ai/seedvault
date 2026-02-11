@@ -16,7 +16,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
 
       - name: Install latest npm
-        run: npm install -g npm@latest
+        run: sudo npm install -g npm@latest
 
       - name: Check CLI version
         id: cli
