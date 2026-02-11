@@ -1,6 +1,6 @@
-import { readFileSync, existsSync } from "fs";
-import { loadConfig, configExists, getPidPath } from "../config.js";
+import { loadConfig, configExists } from "../config.js";
 import { createClient } from "../client.js";
+import { getServiceStatus, detectPlatform } from "../daemon/service.js";
 
 /**
  * sv status
@@ -22,22 +22,20 @@ export async function status(): Promise<void> {
   console.log(`  Contributor: ${config.contributorId}`);
 
   // Daemon
-  const pidPath = getPidPath();
-  if (existsSync(pidPath)) {
-    const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
-    let alive = false;
-    try {
-      process.kill(pid, 0);
-      alive = true;
-    } catch {}
+  try {
+    const platform = detectPlatform();
+    const serviceName = platform === "macos" ? "launchd" : platform === "linux" ? "systemd" : "Task Scheduler";
+    const svc = await getServiceStatus();
 
-    if (alive) {
-      console.log(`  Daemon:  running (PID ${pid})`);
+    if (!svc.installed) {
+      console.log(`  Daemon:  not registered (run 'sv start' to register)`);
+    } else if (svc.running) {
+      console.log(`  Daemon:  running via ${serviceName}${svc.pid ? ` (PID ${svc.pid})` : ""}`);
     } else {
-      console.log(`  Daemon:  not running (stale PID file)`);
+      console.log(`  Daemon:  registered via ${serviceName} but not running`);
     }
-  } else {
-    console.log("  Daemon:  not running");
+  } catch {
+    console.log("  Daemon:  unsupported platform");
   }
 
   // Collections

@@ -81,22 +81,56 @@ ART
 stop_daemon() {
   ui_stage "[1/3] Stopping daemon"
 
+  # Unregister OS service if present
+  local service_found=false
+
+  # macOS: launchd
+  local plist="$HOME/Library/LaunchAgents/ai.seedvault.daemon.plist"
+  if [[ -f "$plist" ]]; then
+    service_found=true
+    ui_info "  Unloading launchd service..."
+    launchctl unload "$plist" 2>/dev/null || true
+    rm -f "$plist"
+    ui_success "  launchd service removed"
+  fi
+
+  # Linux: systemd
+  local unit="$HOME/.config/systemd/user/seedvault.service"
+  if [[ -f "$unit" ]]; then
+    service_found=true
+    ui_info "  Disabling systemd service..."
+    systemctl --user disable --now seedvault.service 2>/dev/null || true
+    rm -f "$unit"
+    systemctl --user daemon-reload 2>/dev/null || true
+    ui_success "  systemd service removed"
+  fi
+
+  # Windows (Git Bash / MSYS2): Task Scheduler
+  if command_exists schtasks.exe; then
+    if schtasks.exe /Query /TN SeedvaultDaemon &>/dev/null; then
+      service_found=true
+      ui_info "  Removing scheduled task..."
+      schtasks.exe /End /TN SeedvaultDaemon 2>/dev/null || true
+      schtasks.exe /Delete /TN SeedvaultDaemon /F 2>/dev/null || true
+      ui_success "  Scheduled task removed"
+    fi
+  fi
+
+  # Fallback: kill by PID file
   if [[ -f "$PID_FILE" ]]; then
     local pid
     pid="$(cat "$PID_FILE")"
     if kill -0 "$pid" 2>/dev/null; then
-      ui_info "  Stopping daemon (PID $pid)..."
-      if command_exists sv; then
-        sv stop 2>/dev/null || kill "$pid" 2>/dev/null || true
-      else
-        kill "$pid" 2>/dev/null || true
-      fi
-      ui_success "  Daemon stopped"
-    else
-      ui_info "  Daemon not running (stale PID file)"
+      ui_info "  Stopping daemon process (PID $pid)..."
+      kill "$pid" 2>/dev/null || true
     fi
-  else
+    rm -f "$PID_FILE"
+  fi
+
+  if ! $service_found && [[ ! -f "$PID_FILE" ]]; then
     ui_info "  No daemon running"
+  else
+    ui_success "  Daemon stopped"
   fi
 }
 
@@ -131,7 +165,7 @@ maybe_remove_config() {
     return
   fi
 
-  # Interactive confirmation if TTY available
+  # Interactive confirmation if TTY available; otherwise remove by default
   if [[ -t 0 ]]; then
     printf "  Remove ${BOLD}$CONFIG_DIR${RESET}? (y/N) "
     read -r answer
@@ -140,9 +174,7 @@ maybe_remove_config() {
       return
     fi
   else
-    ui_info "  No TTY — skipping config removal (use --keep-config or remove manually)"
-    ui_info "  rm -rf $CONFIG_DIR"
-    return
+    ui_info "  Removing $CONFIG_DIR (pass --keep-config to preserve)"
   fi
 
   rm -rf "$CONFIG_DIR"

@@ -3,7 +3,6 @@ import type { FSWatcher } from "chokidar";
 import {
   loadConfig,
   getPidPath,
-  getConfigDir,
   normalizeConfigCollections,
   type CollectionConfig,
   type Config,
@@ -11,21 +10,22 @@ import {
 import { createClient } from "../client.js";
 import { createWatcher, type FileEvent } from "../daemon/watcher.js";
 import { Syncer } from "../daemon/syncer.js";
+import { installService } from "../daemon/service.js";
 
 /**
- * sv start [-d]
+ * sv start [-f]
  *
- *   Foreground (default): runs the daemon in the current terminal.
- *   -d: detaches as a background process.
+ *   Default: registers an OS service (launchd/systemd) that runs the daemon.
+ *   -f / --foreground: runs the daemon directly in the current terminal.
  */
 export async function start(args: string[]): Promise<void> {
-  const daemonize = args.includes("-d") || args.includes("--daemon");
+  const foreground = args.includes("-f") || args.includes("--foreground");
 
-  if (daemonize) {
-    return startBackground();
+  if (foreground) {
+    return startForeground();
   }
 
-  return startForeground();
+  return installService();
 }
 
 /** Run daemon in the foreground */
@@ -188,34 +188,6 @@ async function startForeground(): Promise<void> {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-}
-
-/** Spawn a detached background daemon */
-async function startBackground(): Promise<void> {
-  loadConfig();
-
-  // Spawn a detached child running "sv start" (foreground, no -d)
-  // We find our entry point by going up from commands/ to index.ts
-  const entryPoint = import.meta.dir + "/../index.ts";
-  const logPath = getConfigDir() + "/daemon.log";
-
-  const child = Bun.spawn({
-    cmd: ["bun", "run", entryPoint, "start"],
-    stdin: "ignore",
-    stdout: Bun.file(logPath),
-    stderr: Bun.file(logPath),
-    env: { ...process.env },
-  });
-
-  const pid = child.pid;
-  writeFileSync(getPidPath(), String(pid));
-
-  console.log(`Daemon started in background (PID ${pid}).`);
-  console.log(`  Log:  ${logPath}`);
-  console.log(`  Run 'sv status' to check, 'sv stop' to stop.`);
-
-  // Detach: don't wait for child
-  child.unref();
 }
 
 function keyByName(collections: CollectionConfig[]): Map<string, CollectionConfig> {

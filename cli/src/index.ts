@@ -28,9 +28,9 @@ Collections:
   collections                   List configured collections
 
 Daemon:
-  start                         Start syncing (foreground)
-  start -d                      Start syncing (background)
-  stop                          Stop the daemon
+  start                         Register OS service and start syncing
+  start -f                      Start syncing in foreground (debug)
+  stop                          Stop daemon and unregister service
   status                        Show sync status
 
 Files:

@@ -31,6 +31,10 @@ export interface NormalizeCollectionsResult {
 const CONFIG_DIR = join(homedir(), ".config", "seedvault");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 const PID_PATH = join(CONFIG_DIR, "daemon.pid");
+const DAEMON_LOG_PATH = join(CONFIG_DIR, "daemon.log");
+const LAUNCHD_PLIST_PATH = join(homedir(), "Library", "LaunchAgents", "ai.seedvault.daemon.plist");
+const SYSTEMD_UNIT_PATH = join(homedir(), ".config", "systemd", "user", "seedvault.service");
+const SCHTASKS_XML_PATH = join(CONFIG_DIR, "seedvault-task.xml");
 
 export function getConfigDir(): string {
   return CONFIG_DIR;
@@ -44,9 +48,25 @@ export function getPidPath(): string {
   return PID_PATH;
 }
 
+export function getDaemonLogPath(): string {
+  return DAEMON_LOG_PATH;
+}
+
+export function getLaunchdPlistPath(): string {
+  return LAUNCHD_PLIST_PATH;
+}
+
+export function getSystemdUnitPath(): string {
+  return SYSTEMD_UNIT_PATH;
+}
+
+export function getSchtasksXmlPath(): string {
+  return SCHTASKS_XML_PATH;
+}
+
 // --- Config CRUD ---
 
-function ensureConfigDir(): void {
+export function ensureConfigDir(): void {
   if (!existsSync(CONFIG_DIR)) {
     mkdirSync(CONFIG_DIR, { recursive: true });
   }
