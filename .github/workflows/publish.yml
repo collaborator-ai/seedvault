@@ -1,0 +1,59 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install latest npm
+        run: npm install -g npm@latest
+
+      - name: Check CLI version
+        id: cli
+        run: |
+          LOCAL=$(jq -r .version cli/package.json)
+          REMOTE=$(npm view @seedvault/cli version 2>/dev/null || echo "0.0.0")
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "CLI: $REMOTE -> $LOCAL"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "CLI: $LOCAL (unchanged)"
+          fi
+
+      - name: Check server version
+        id: server
+        run: |
+          LOCAL=$(jq -r .version server/package.json)
+          REMOTE=$(npm view @seedvault/server version 2>/dev/null || echo "0.0.0")
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Server: $REMOTE -> $LOCAL"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Server: $LOCAL (unchanged)"
+          fi
+
+      - name: Publish CLI
+        if: steps.cli.outputs.changed == 'true'
+        working-directory: cli
+        run: |
+          bun run build
+          npm publish --provenance --access public
+
+      - name: Publish server
+        if: steps.server.outputs.changed == 'true'
+        working-directory: server
+        run: |
+          bun run build
+          npm publish --provenance --access public

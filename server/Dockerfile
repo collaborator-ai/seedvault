@@ -1,6 +1,9 @@
 FROM oven/bun:1 AS base
 WORKDIR /app
 
+# Install tree (used by shell passthrough endpoint)
+RUN apt-get update && apt-get install -y tree && rm -rf /var/lib/apt/lists/*
+
 # Install QMD globally (search engine for markdown)
 RUN bun install -g https://github.com/tobi/qmd
 
