@@ -10,6 +10,7 @@ Seedvault is a **pooled markdown sync service**. It keeps markdown files from mu
 - **Contributor sovereignty:** Each contributor has one owner. Only the owner's daemon can write. Everyone else gets read-only access.
 - **Collection-level sync:** Contributors add collections (local folders) to sync. Everything in them syncs. No per-file permissions.
 - **Plain files on disk:** Server stores markdown as-is on the filesystem. Enables direct indexing by [QMD](https://github.com/tobi/qmd) for hybrid search (BM25 + semantic + LLM re-ranking).
+- **Unix filesystem as API:** The read API is a single shell passthrough endpoint. Agents issue `ls`, `cat`, `grep`, etc. — commands already in their training data — and get back the output. No bespoke API vocabulary to learn. The storage root is the filesystem; contributors are just directories.
 - **Open source, self-hostable.** Collaborator runs hosted instances for its users.
 
 ---
@@ -26,7 +27,7 @@ Vault (= the server instance)
 ```
 
 - **Vault:** A single Seedvault deployment. One server, one storage root, one set of API endpoints. Auth metadata lives in SQLite; file content lives on the filesystem.
-- **Contributor:** A contributor's namespace within the vault. Each contributor has one owner and one or more contributor-scoped tokens. Contributors are the unit of write isolation — no shared contributors. Each contributor maps to a directory on disk.
+- **Contributor:** A username-identified namespace within the vault. Each contributor has one owner and one or more contributor-scoped tokens. Contributors are the unit of write isolation — no shared contributors. Each contributor maps to a directory on disk (e.g., `<storage_root>/yiliu/`).
 - **Collection:** A synced local folder within a contributor. Each collection has a local `path` and an in-vault `name` (e.g., `notes`, `work-docs`) that becomes its path prefix within the contributor. `name` defaults to the folder's basename and can be overridden to avoid collisions.
 - **Files:** Stored within a collection, identified by relative path (e.g., `notes/seedvault.md`, where `notes` is the collection name). On the server, paths are flat — there's no collection-level API, just file paths prefixed by collection name.
 
@@ -45,8 +46,8 @@ Vault (= the server instance)
 
 **2. Server (central)**
 - Receives file updates from daemons, writes them as plain files on disk
-- Mirrors contributor/path structure: `<storage_root>/<contributor_id>/<path>`
-- Serves files to authorized consumers via HTTP
+- Mirrors contributor/path structure: `<storage_root>/<username>/<path>`
+- Exposes the storage root as a read-only shell passthrough (`POST /v1/sh`)
 - Pushes change events to connected consumers via SSE
 - Auth and contributor metadata in SQLite; file content on the filesystem
 
@@ -57,23 +58,23 @@ Vault (= the server instance)
 - Seedvault's search endpoint delegates to QMD — Seedvault does not own search
 
 **4. Consumer (read-side)**
-- Any authorized client: Collaborator/OpenClaw instance, another service, etc.
+- Any authorized client: AI agents, Collaborator/OpenClaw instance, another service, etc.
+- Issues shell commands (`ls`, `cat`, `grep`) via the `POST /v1/sh` endpoint — the vault looks like a remote filesystem
 - Connects to SSE stream for real-time change notifications
-- Reads files and queries search via HTTP
-- Authenticates with a token that has `read` role (vault-wide access)
+- Authenticates with a token (vault-wide read access)
 
 ### Data Flow
 
 ```
-[Machine A]              [Server]              [Collaborator]
-  Daemon  ---PUT/DELETE--->  Write files        
-                             to disk       
-                               |           
-                             QMD indexes    
-                             file tree     
-                               |           
+[Machine A]              [Server]              [Agent / Consumer]
+  Daemon  ---PUT/DELETE--->  Write files
+                             to disk
+                               |
+                             QMD indexes
+                             file tree
+                               |
                           <---SSE stream---  Consumer
-                          ---GET/search--->
+                          ---POST /v1/sh-->  (ls, cat, grep, ...)
 ```
 
 ---
@@ -96,23 +97,22 @@ The first contributor created (via signup without invite) is the **operator**. T
 Tokens are SHA-256 hashed before storage. The raw token is returned **once** at creation and never stored.
 
 ```sql
-api_keys (id, key_hash, label, contributor_id, created_at, last_used_at)
+api_keys (id, key_hash, label, contributor, created_at, last_used_at)
 ```
 
-Every token has a `contributor_id` — there are no unscoped tokens.
+Every token has a `contributor` (username) — there are no unscoped tokens.
 
 ### Auth check logic
 
 ```
-POST .../signup                      → no auth (requires invite code, except first user)
-POST .../invites                     → operator only
-PUT/DELETE .../contributors/:contributorId/files/* → contributor_id matches
-GET .../contributors/:contributorId/files/*       → any valid token
-GET .../contributors/:contributorId/files         → any valid token
-GET .../contributors                       → any valid token
-GET .../events                      → any valid token
-GET .../search                      → any valid token
-GET /health                         → no auth
+POST .../signup                → no auth (requires invite code, except first user)
+GET  .../me                    → any valid token (returns token's username)
+POST .../invites               → operator only
+PUT  .../files/*               → token's username must match path prefix
+DELETE .../files/*             → token's username must match path prefix
+POST .../sh                    → any valid token (read-only shell commands)
+GET  .../events                → any valid token
+GET  /health                   → no auth
 ```
 
 ---
@@ -121,7 +121,7 @@ GET /health                         → no auth
 
 Base URL: `/v1`
 
-### Signup & Invites
+### Auth & Admin
 
 #### `POST /v1/signup`
 Create a new contributor and get a token. The first signup requires no invite. All subsequent signups require an invite code.
@@ -129,7 +129,7 @@ Create a new contributor and get a token. The first signup requires no invite. A
 **Request body:**
 ```json
 {
-  "name": "yiliu-notes",
+  "name": "yiliu",
   "invite": "abc123"
 }
 ```
@@ -137,7 +137,7 @@ Create a new contributor and get a token. The first signup requires no invite. A
 First user omits `invite`:
 ```json
 {
-  "name": "yiliu-notes"
+  "name": "yiliu"
 }
 ```
 
@@ -145,15 +145,27 @@ First user omits `invite`:
 ```json
 {
   "contributor": {
-    "id": "contributor_abc123",
-    "name": "yiliu-notes",
+    "username": "yiliu",
     "createdAt": "2026-02-10T22:00:00Z"
   },
   "token": "sv_..."
 }
 ```
 
-The contributor's directory is created on disk at `<storage_root>/contributor_abc123/`, and registered as a QMD collection. The token is returned **once**.
+The contributor's directory is created on disk at `<storage_root>/yiliu/`, and registered as a QMD collection. The token is returned **once**.
+
+---
+
+#### `GET /v1/me`
+Resolve a token to its contributor. Requires any valid token. Used by the CLI during `sv init` to auto-detect the username from a token.
+
+**Response: `200 OK`**
+```json
+{
+  "username": "yiliu",
+  "createdAt": "2026-02-10T22:00:00Z"
+}
+```
 
 ---
 
@@ -165,21 +177,6 @@ Generate an invite code. Requires operator token (the first user).
 {
   "invite": "abc123",
   "createdAt": "2026-02-10T22:00:00Z"
-}
-```
-
----
-
-#### `GET /v1/contributors`
-List all contributors in the vault. Requires any valid token.
-
-**Response: `200 OK`**
-```json
-{
-  "contributors": [
-    {"id": "contributor_abc123", "name": "yiliu-notes", "createdAt": "2026-02-10T22:00:00Z"},
-    {"id": "contributor_def456", "name": "collin-workspace", "createdAt": "2026-02-10T22:30:00Z"}
-  ]
 }
 ```
 
@@ -199,10 +196,10 @@ Health check. No auth required.
 
 ### Write (Daemon → Server)
 
-Requires a token scoped to the target contributor.
+Requires a token scoped to the target contributor. The path's first segment must match the token's username.
 
-#### `PUT /v1/contributors/:contributorId/files/*path`
-Create or update a file. Path must end in `.md`. The server writes the content to disk at `<storage_root>/<contributorId>/<path>`, creating intermediate directories as needed. Uses atomic write (temp file + rename) to prevent partial writes. Max file size: **10 MB**. Concurrent writes to the same contributor use last-write-wins.
+#### `PUT /v1/files/*path`
+Create or update a file. Full path includes the contributor username prefix (e.g., `yiliu/notes/seedvault.md`). Path must end in `.md`. Uses atomic write (temp file + rename). Max file size: **10 MB**. Concurrent writes use last-write-wins.
 
 **Request body:** Raw markdown content.
 **Headers:** `Content-Type: text/markdown`
@@ -218,65 +215,58 @@ Create or update a file. Path must end in `.md`. The server writes the content t
 
 ---
 
-#### `DELETE /v1/contributors/:contributorId/files/*path`
-Delete a file from disk. Removes empty parent directories.
+#### `DELETE /v1/files/*path`
+Delete a file from disk. Path includes contributor prefix. Removes empty parent directories.
 
 **Response: `204 No Content`**
 
 ---
 
-### Read (Consumer → Server)
+### Read (Shell Passthrough)
 
-Requires any valid token.
+A single endpoint replaces all read operations. Requires any valid token.
 
-#### `GET /v1/contributors/:contributorId/files`
-List files in a contributor. Walks the contributor's directory on disk and returns a flat list.
+#### `POST /v1/sh`
+Execute a read-only shell command in the vault's `data/files/` directory. The command runs inside the storage root, where contributors are top-level directories. Returns the command's stdout as plain text.
 
-**Query params:**
-- `prefix` (optional) — filter to files whose path starts with this prefix
-
-**Response: `200 OK`**
+**Request body:**
 ```json
 {
-  "files": [
-    {"path": "notes/seedvault.md", "size": 2048, "modifiedAt": "2026-02-10T22:05:00Z"},
-    {"path": "notes/collaborator.md", "size": 1024, "modifiedAt": "2026-02-10T21:00:00Z"}
-  ]
+  "cmd": "ls yiliu/notes"
 }
 ```
 
----
-
-#### `GET /v1/contributors/:contributorId/files/*path`
-Read a single file from disk.
-
 **Response: `200 OK`**
-**Body:** Raw markdown content.
-**Headers:** `Content-Type: text/markdown`
+**Body:** Command stdout as plain text.
 
----
+**Allowed commands:** Only a whitelist of read-only commands is permitted (e.g., `ls`, `cat`, `head`, `tail`, `find`, `grep`, `wc`, `tree`, `stat`). Any command not on the whitelist is rejected.
 
-#### `GET /v1/search?q=<query>`
-Search across all contributors in the vault. Delegates to QMD, which indexes the server's file tree.
+**Examples:**
 
-**Query params:**
-- `q` (required) — search query
-- `contributor` (optional) — limit to a specific contributor (maps to QMD collection)
-- `limit` (optional, default 10) — max results
+```bash
+# List all contributors (top-level directories)
+{"cmd": "ls"}
 
-**Response: `200 OK`**
-```json
-{
-  "results": [
-    {
-      "contributor": "contributor_abc123",
-      "path": "notes/seedvault.md",
-      "snippet": "Seedvault is a pooled markdown server...",
-      "score": 0.92
-    }
-  ]
-}
+# List files in a contributor's collection
+{"cmd": "ls -la yiliu/notes"}
+
+# Read a file
+{"cmd": "cat yiliu/notes/seedvault.md"}
+
+# Search across all contributors
+{"cmd": "grep -r 'pooled markdown' ."}
+
+# Search within one contributor
+{"cmd": "grep -rl 'API design' yiliu/"}
+
+# Find recently modified files
+{"cmd": "find . -name '*.md' -mmin -60"}
+
+# Word count
+{"cmd": "wc -l yiliu/notes/*.md"}
 ```
+
+**Virtual directories (future):** The interposer layer between the incoming command and execution can expose synthetic filesystem views — e.g., a `recent/` directory that lists all files across all contributors sorted by mtime, or a `search/<query>/` directory whose contents are search results. The agent doesn't need to know these are virtual.
 
 ---
 
@@ -289,10 +279,10 @@ Opens a Server-Sent Events stream. Requires any valid token. Streams events for 
 
 ```
 event: file_updated
-data: {"contributor":"contributor_abc123","path":"notes/seedvault.md","size":2048,"modifiedAt":"2026-02-10T22:05:00Z"}
+data: {"contributor":"yiliu","path":"notes/seedvault.md","size":2048,"modifiedAt":"2026-02-10T22:05:00Z"}
 
 event: file_deleted
-data: {"contributor":"contributor_abc123","path":"notes/old-idea.md"}
+data: {"contributor":"yiliu","path":"notes/old-idea.md"}
 ```
 
 Consumer uses these events to trigger local reindexing, cache invalidation, etc.
@@ -307,14 +297,14 @@ Files are stored as plain markdown on the server's filesystem, mirroring contrib
 
 ```
 <storage_root>/
-  contributor_abc123/           # yiliu's contributor
+  yiliu/                 # contributor directory
     notes/               # from ~/notes
       seedvault.md
       collaborator.md
     work-docs/           # from ~/work/docs
       api/
         design.md
-  contributor_def456/           # collin's contributor
+  collin/                # another contributor
     memory/              # from ~/memory
       2026-02-10.md
     journal/             # from ~/journal
@@ -332,8 +322,7 @@ A single SQLite database stores contributor records and API keys. No file conten
 
 ```sql
 CREATE TABLE contributors (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
+  username TEXT PRIMARY KEY,
   is_operator BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TEXT NOT NULL
 );
@@ -342,17 +331,17 @@ CREATE TABLE api_keys (
   id TEXT PRIMARY KEY,
   key_hash TEXT UNIQUE NOT NULL,
   label TEXT NOT NULL,
-  contributor_id TEXT NOT NULL REFERENCES contributors(id),
+  contributor TEXT NOT NULL REFERENCES contributors(username),
   created_at TEXT NOT NULL,
   last_used_at TEXT
 );
 
 CREATE TABLE invites (
   id TEXT PRIMARY KEY,
-  created_by TEXT NOT NULL REFERENCES contributors(id),
+  created_by TEXT NOT NULL REFERENCES contributors(username),
   created_at TEXT NOT NULL,
   used_at TEXT,
-  used_by TEXT REFERENCES contributors(id)
+  used_by TEXT REFERENCES contributors(username)
 );
 ```
 
@@ -361,8 +350,8 @@ CREATE TABLE invites (
 [QMD](https://github.com/tobi/qmd) runs alongside the server and indexes the file tree directly. Each contributor is a QMD collection:
 
 ```bash
-qmd collection add <storage_root>/contributor_abc123 --name yiliu-notes
-qmd collection add <storage_root>/contributor_def456 --name collin-workspace
+qmd collection add <storage_root>/yiliu --name yiliu --mask **/*.md
+qmd collection add <storage_root>/collin --name collin --mask **/*.md
 ```
 
 QMD provides:
@@ -410,7 +399,7 @@ The daemon watches one or more local directories as collections. Each collection
 {
   "server": "https://vault.example.com",
   "token": "sv_...",
-  "contributorId": "contributor_abc123",
+  "username": "yiliu",
   "collections": [
     {"path": "~/notes", "name": "notes"},
     {"path": "~/work/docs", "name": "work-docs"},
@@ -418,6 +407,8 @@ The daemon watches one or more local directories as collections. Each collection
   ]
 }
 ```
+
+The `username` is resolved automatically from the token via `GET /v1/me` during `sv init`.
 
 **`name` defaults to the folder basename.** Explicit names are only needed when basenames collide (e.g., two directories both named `notes`).
 
@@ -471,7 +462,7 @@ The installer:
 For agents and CI (non-interactive):
 ```bash
 curl -fsSL https://seedvault.ai/install.sh | bash -s -- --no-onboard
-sv init --server https://vault.example.com --token sv_... --contributor-id contributor_abc123
+sv init --server https://vault.example.com --token sv_...
 ```
 
 ### Commands
@@ -479,7 +470,7 @@ sv init --server https://vault.example.com --token sv_... --contributor-id contr
 **Setup:**
 ```bash
 sv init                          # Interactive first-time setup (server URL, signup/invite)
-sv init --server URL --token T --contributor-id ID  # Non-interactive setup (already have token)
+sv init --server URL --token T   # Non-interactive setup (username resolved from token)
 sv init --server URL --name me --invite CODE  # Non-interactive signup
 ```
 
@@ -499,16 +490,16 @@ sv stop                    # Stop daemon and unregister service
 sv status                  # Show daemon/config/server status
 ```
 
-**File operations (reads from server):**
+**File operations (reads from server via shell passthrough):**
 ```bash
-sv ls                      # List all files in your contributor
-sv ls notes/               # List files under a prefix
-sv cat notes/seedvault.md  # Read a file
+sv ls                      # List all contributors
+sv ls yiliu/notes/         # List files under a path
+sv cat yiliu/notes/seedvault.md  # Read a file
+sv grep -r "search term" . # Search across all contributors
 ```
 
-**Vault info:**
+**Admin:**
 ```bash
-sv contributors            # List all contributors in the vault
 sv invite                  # Generate an invite code (operator only)
 ```
 
@@ -520,7 +511,7 @@ Config lives at `~/.config/seedvault/config.json`:
 {
   "server": "https://vault.example.com",
   "token": "sv_...",
-  "contributorId": "contributor_abc123",
+  "username": "yiliu",
   "collections": [
     {"path": "/Users/yiliu/notes", "name": "notes"},
     {"path": "/Users/yiliu/work/docs", "name": "work-docs"}
@@ -577,11 +568,11 @@ All persistent state lives under `DATA_DIR`:
 ```
 $DATA_DIR/
   seedvault.db          # SQLite (contributors, api_keys, invites)
-  files/                # File storage root
-    contributor_abc123/
+  files/                # File storage root (= the shell endpoint's working directory)
+    yiliu/
       notes/
         seedvault.md
-    contributor_def456/
+    collin/
       ...
 ```
 
@@ -617,7 +608,7 @@ QMD is installed in the Docker image alongside the server. On startup, the serve
 2. Registers each contributor's directory as a QMD collection
 3. After each file write/delete, triggers `qmd update` to re-index
 
-The search API endpoint (`GET /v1/search`) invokes QMD via its CLI (`qmd search --json`). For better performance, the server can optionally run QMD's MCP HTTP server as a sidecar process and query it directly.
+Search is available through the shell passthrough endpoint (e.g., `grep -r "query" .`) for basic text search. QMD-powered hybrid search (semantic + BM25 + re-ranking) can be exposed as a virtual directory or command in the interposer layer.
 
 ### First boot
 
@@ -660,7 +651,8 @@ All error responses use a consistent format:
 - Signup with invite system (first user is operator)
 - `sv` CLI with daemon, collection management, and vault commands
 - Curl-pipe-bash installer (`seedvault.ai/install.sh`)
-- PUT/DELETE/GET/list endpoints (contributor-scoped)
+- Shell passthrough read endpoint (`POST /v1/sh`) — agents use `ls`, `cat`, `grep`, etc.
+- Dedicated write endpoints (`PUT`/`DELETE /v1/files/*`)
 - SSE event stream
 - Contributor-scoped token auth (every token writes to its contributor, reads all)
 - Plain file storage on disk (10 MB max, last-write-wins)
