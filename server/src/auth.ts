@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import type { Context, Next } from "hono";
-import { getApiKeyByHash, touchApiKey, getContributorById, type ApiKey, type Contributor } from "./db.js";
+import { getApiKeyByHash, touchApiKey, getContributor, type ApiKey, type Contributor } from "./db.js";
 
 /** Generate a raw token string: sv_<32 random hex chars> */
 export function generateToken(): string {
@@ -43,7 +43,7 @@ export async function authMiddleware(c: Context, next: Next) {
     return c.json({ error: "Invalid token" }, 401);
   }
 
-  const contributor = getContributorById(apiKey.contributor_id);
+  const contributor = getContributor(apiKey.contributor);
   if (!contributor) {
     return c.json({ error: "Token references a contributor that no longer exists" }, 401);
   }

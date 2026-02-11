@@ -15,8 +15,7 @@ export function initDb(dbPath: string): Database {
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS contributors (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL UNIQUE,
+      username TEXT PRIMARY KEY,
       is_operator BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL
     );
@@ -25,64 +24,67 @@ export function initDb(dbPath: string): Database {
       id TEXT PRIMARY KEY,
       key_hash TEXT UNIQUE NOT NULL,
       label TEXT NOT NULL,
-      contributor_id TEXT NOT NULL REFERENCES contributors(id),
+      contributor TEXT NOT NULL REFERENCES contributors(username),
       created_at TEXT NOT NULL,
       last_used_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS invites (
       id TEXT PRIMARY KEY,
-      created_by TEXT NOT NULL REFERENCES contributors(id),
+      created_by TEXT NOT NULL REFERENCES contributors(username),
       created_at TEXT NOT NULL,
       used_at TEXT,
-      used_by TEXT REFERENCES contributors(id)
+      used_by TEXT REFERENCES contributors(username)
     );
   `);
 
   return db;
 }
 
+// --- Username validation ---
+
+export function validateUsername(username: string): string | null {
+  if (!username || username.length === 0) {
+    return "Username is required";
+  }
+  if (username.length > 63) {
+    return "Username must be 63 characters or fewer";
+  }
+  if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(username) && !/^[a-z0-9]$/.test(username)) {
+    return "Username must be lowercase alphanumeric with hyphens, starting and ending with alphanumeric";
+  }
+  return null;
+}
+
 // --- Contributors ---
 
 export interface Contributor {
-  id: string;
-  name: string;
+  username: string;
   is_operator: boolean;
   created_at: string;
 }
 
-export function createContributor(name: string, isOperator: boolean): Contributor {
-  const id = `contributor_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+export function createContributor(username: string, isOperator: boolean): Contributor {
   const now = new Date().toISOString();
   getDb()
     .prepare(
-      "INSERT INTO contributors (id, name, is_operator, created_at) VALUES (?, ?, ?, ?)"
+      "INSERT INTO contributors (username, is_operator, created_at) VALUES (?, ?, ?)"
     )
-    .run(id, name, isOperator ? 1 : 0, now);
-  return { id, name, is_operator: isOperator, created_at: now };
+    .run(username, isOperator ? 1 : 0, now);
+  return { username, is_operator: isOperator, created_at: now };
 }
 
-export function getContributorById(id: string): Contributor | null {
+export function getContributor(username: string): Contributor | null {
   const row = getDb()
-    .prepare("SELECT id, name, is_operator, created_at FROM contributors WHERE id = ?")
-    .get(id) as Contributor | null;
-  if (row) row.is_operator = Boolean(row.is_operator);
-  return row;
-}
-
-export function getContributorByName(name: string): Contributor | null {
-  const row = getDb()
-    .prepare(
-      "SELECT id, name, is_operator, created_at FROM contributors WHERE name = ?"
-    )
-    .get(name) as Contributor | null;
+    .prepare("SELECT username, is_operator, created_at FROM contributors WHERE username = ?")
+    .get(username) as Contributor | null;
   if (row) row.is_operator = Boolean(row.is_operator);
   return row;
 }
 
 export function listContributors(): Contributor[] {
   const rows = getDb()
-    .prepare("SELECT id, name, is_operator, created_at FROM contributors ORDER BY created_at ASC")
+    .prepare("SELECT username, is_operator, created_at FROM contributors ORDER BY created_at ASC")
     .all() as Contributor[];
   return rows.map((r) => ({ ...r, is_operator: Boolean(r.is_operator) }));
 }
@@ -100,20 +102,20 @@ export interface ApiKey {
   id: string;
   key_hash: string;
   label: string;
-  contributor_id: string;
+  contributor: string;
   created_at: string;
   last_used_at: string | null;
 }
 
-export function createApiKey(keyHash: string, label: string, contributorId: string): ApiKey {
+export function createApiKey(keyHash: string, label: string, contributor: string): ApiKey {
   const id = `key_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const now = new Date().toISOString();
   getDb()
     .prepare(
-      "INSERT INTO api_keys (id, key_hash, label, contributor_id, created_at) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO api_keys (id, key_hash, label, contributor, created_at) VALUES (?, ?, ?, ?, ?)"
     )
-    .run(id, keyHash, label, contributorId, now);
-  return { id, key_hash: keyHash, label, contributor_id: contributorId, created_at: now, last_used_at: null };
+    .run(id, keyHash, label, contributor, now);
+  return { id, key_hash: keyHash, label, contributor, created_at: now, last_used_at: null };
 }
 
 export function getApiKeyByHash(keyHash: string): ApiKey | null {

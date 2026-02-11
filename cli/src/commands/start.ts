@@ -70,7 +70,7 @@ async function startForeground(): Promise<void> {
 
   log("Seedvault daemon starting...");
   log(`  Server:  ${config.server}`);
-  log(`  Contributor: ${config.contributorId}`);
+  log(`  Contributor: ${config.username}`);
   if (config.collections.length === 0) {
     log("  Collections: none");
     log("  Waiting for collections to be added...");
@@ -83,7 +83,7 @@ async function startForeground(): Promise<void> {
 
   const syncer = new Syncer({
     client,
-    contributorId: config.contributorId,
+    username: config.username,
     collections: config.collections,
     onLog: log,
   });

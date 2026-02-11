@@ -8,8 +8,8 @@ import { createClient } from "../client.js";
  * sv init
  *   Interactive:  prompts for server URL, name, optional invite code
  *   Non-interactive:
- *     sv init --server URL --token TOKEN            (already have a token)
- *     sv init --server URL --name NAME [--invite C] (signup via API)
+ *     sv init --server URL --token TOKEN --username U  (already have a token)
+ *     sv init --server URL --name NAME [--invite C]    (signup via API)
  */
 export async function init(args: string[]): Promise<void> {
   // Parse flags
@@ -32,25 +32,22 @@ export async function init(args: string[]): Promise<void> {
       process.exit(1);
     }
 
-    // We don't know which contributor this token belongs to without trying.
-    // For now, save without contributorId — the first PUT will tell us.
-    // Actually, let's require --contributor-id or try to infer it.
-    const contributorId = flags["contributor-id"] || "";
-    if (!contributorId) {
-      console.error("When using --token, also pass --contributor-id");
+    const username = flags["username"] || "";
+    if (!username) {
+      console.error("When using --token, also pass --username");
       process.exit(1);
     }
 
     const config: Config = {
       server: flags.server,
       token: flags.token,
-      contributorId,
+      username,
       collections: [],
     };
     saveConfig(config);
     console.log("Seedvault configured.");
     console.log(`  Server:  ${config.server}`);
-    console.log(`  Contributor ID: ${config.contributorId}`);
+    console.log(`  Username: ${config.username}`);
     return;
   }
 
@@ -68,13 +65,13 @@ export async function init(args: string[]): Promise<void> {
     const config: Config = {
       server: flags.server,
       token: result.token,
-      contributorId: result.contributor.id,
+      username: result.contributor.username,
       collections: [],
     };
     saveConfig(config);
     console.log("Signed up and configured.");
     console.log(`  Server:  ${config.server}`);
-    console.log(`  Contributor: ${result.contributor.name} (${result.contributor.id})`);
+    console.log(`  Username: ${result.contributor.username}`);
     console.log(`  Token:   ${result.token}`);
     return;
   }
@@ -113,24 +110,23 @@ export async function init(args: string[]): Promise<void> {
 
     if (hasToken.toLowerCase() === "y") {
       const token = await rl.question("Token: ");
-      const contributorId = await rl.question("Contributor ID: ");
-      const config: Config = { server, token: token.trim(), contributorId: contributorId.trim(), collections: [] };
+      const username = await rl.question("Username: ");
+      const config: Config = { server, token: token.trim(), username: username.trim(), collections: [] };
       saveConfig(config);
       console.log("\nSeedvault configured.");
     } else {
-      const name = await rl.question("Contributor name (e.g. your-name-notes): ");
+      const name = await rl.question("Username (e.g. your-name-notes): ");
       const invite = await rl.question("Invite code (leave blank if first user): ");
 
       const result = await client.signup(name.trim(), invite.trim() || undefined);
       const config: Config = {
         server,
         token: result.token,
-        contributorId: result.contributor.id,
+        username: result.contributor.username,
         collections: [],
       };
       saveConfig(config);
-      console.log(`\nSigned up as '${result.contributor.name}'.`);
-      console.log(`  Contributor ID: ${result.contributor.id}`);
+      console.log(`\nSigned up as '${result.contributor.username}'.`);
       console.log(`  Token:   ${result.token}`);
       console.log("\nSave your token — it won't be shown again.");
     }

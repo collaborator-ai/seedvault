@@ -1,5 +1,7 @@
 #!/usr/bin/env bun
 
+import { readFileSync } from "fs";
+import { resolve } from "path";
 import { init } from "./commands/init.js";
 import { add } from "./commands/add.js";
 import { remove } from "./commands/remove.js";
@@ -19,8 +21,8 @@ Usage: sv <command> [options]
 
 Setup:
   init                          Interactive first-time setup
-  init --server URL --token T   Non-interactive (existing token)
-  init --server URL --name N    Non-interactive (signup)
+  init --server URL --token T --username U  Non-interactive (existing token)
+  init --server URL --name N               Non-interactive (signup)
 
 Collections:
   add <path> [--name N]         Add a collection path
@@ -51,7 +53,9 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "--version" || cmd === "-v") {
-    console.log("0.2.1");
+    const pkgPath = resolve(import.meta.dirname, "..", "package.json");
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf-8"));
+    console.log(pkg.version);
     return;
   }
 

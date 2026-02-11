@@ -12,7 +12,7 @@ export interface CollectionConfig {
 export interface Config {
   server: string;
   token: string;
-  contributorId: string;
+  username: string;
   collections: CollectionConfig[];
 }
 

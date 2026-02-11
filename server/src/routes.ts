@@ -7,8 +7,8 @@ import {
 	createInvite,
 	getInvite,
 	markInviteUsed,
-	getContributorById,
-	getContributorByName,
+	getContributor,
+	validateUsername,
 	hasAnyContributor,
 	listContributors,
 } from "./db.js";
@@ -36,8 +36,8 @@ const isDev = process.env.NODE_ENV !== "production";
 const uiHtmlCached = readFileSync(uiPath, "utf-8");
 
 /** Extract and decode the file path from a wildcard route */
-function extractFilePath(reqPath: string, contributorId: string): string | null {
-	const raw = reqPath.replace(`/v1/contributors/${contributorId}/files/`, "");
+function extractFilePath(reqPath: string, username: string): string | null {
+	const raw = reqPath.replace(`/v1/contributors/${username}/files/`, "");
 	try {
 		return decodeURIComponent(raw);
 	} catch {
@@ -67,7 +67,13 @@ export function createApp(storageRoot: string): Hono {
 			return c.json({ error: "name is required" }, 400);
 		}
 
-		const name = body.name.trim();
+		const username = body.name.trim();
+
+		const usernameError = validateUsername(username);
+		if (usernameError) {
+			return c.json({ error: usernameError }, 400);
+		}
+
 		const isFirstUser = !hasAnyContributor();
 
 		// Validate invite (required unless first user)
@@ -84,14 +90,14 @@ export function createApp(storageRoot: string): Hono {
 			}
 		}
 
-		// Check name uniqueness
-		if (getContributorByName(name)) {
-			return c.json({ error: "A contributor with that name already exists" }, 409);
+		// Check username uniqueness
+		if (getContributor(username)) {
+			return c.json({ error: "A contributor with that username already exists" }, 409);
 		}
 
 		// Create contributor
-		const contributor = createContributor(name, isFirstUser);
-		await ensureContributorDir(storageRoot, contributor.id);
+		const contributor = createContributor(username, isFirstUser);
+		await ensureContributorDir(storageRoot, contributor.username);
 
 		// Register as QMD collection
 		qmd.addCollection(storageRoot, contributor).catch((e) =>
@@ -100,18 +106,17 @@ export function createApp(storageRoot: string): Hono {
 
 		// Create token
 		const rawToken = generateToken();
-		createApiKey(hashToken(rawToken), `${name}-default`, contributor.id);
+		createApiKey(hashToken(rawToken), `${username}-default`, contributor.username);
 
 		// Mark invite as used
 		if (!isFirstUser && body.invite) {
-			markInviteUsed(body.invite, contributor.id);
+			markInviteUsed(body.invite, contributor.username);
 		}
 
 		return c.json(
 			{
 				contributor: {
-					id: contributor.id,
-					name: contributor.name,
+					username: contributor.username,
 					createdAt: contributor.created_at,
 				},
 				token: rawToken,
@@ -134,7 +139,7 @@ export function createApp(storageRoot: string): Hono {
 			return c.json({ error: "Only the operator can generate invite codes" }, 403);
 		}
 
-		const invite = createInvite(contributor.id);
+		const invite = createInvite(contributor.username);
 		return c.json(
 			{
 				invite: invite.id,
@@ -150,8 +155,7 @@ export function createApp(storageRoot: string): Hono {
 		const contributors = listContributors();
 		return c.json({
 			contributors: contributors.map((b) => ({
-				id: b.id,
-				name: b.name,
+				username: b.username,
 				createdAt: b.created_at,
 			})),
 		});
@@ -159,20 +163,20 @@ export function createApp(storageRoot: string): Hono {
 
 	// --- File Write ---
 
-	authed.put("/v1/contributors/:contributorId/files/*", async (c) => {
+	authed.put("/v1/contributors/:username/files/*", async (c) => {
 		const { contributor } = getAuthCtx(c);
-		const contributorId = c.req.param("contributorId");
+		const username = c.req.param("username");
 
-		if (contributor.id !== contributorId) {
+		if (contributor.username !== username) {
 			return c.json({ error: "You can only write to your own contributor" }, 403);
 		}
 
 		// Verify contributor exists
-		if (!getContributorById(contributorId)) {
+		if (!getContributor(username)) {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const filePath = extractFilePath(c.req.path, contributorId);
+		const filePath = extractFilePath(c.req.path, username);
 		if (filePath === null) {
 			return c.json({ error: "Invalid URL encoding in path" }, 400);
 		}
@@ -184,10 +188,10 @@ export function createApp(storageRoot: string): Hono {
 		const content = await c.req.text();
 
 		try {
-			const result = await writeFileAtomic(storageRoot, contributorId, filePath, content);
+			const result = await writeFileAtomic(storageRoot, username, filePath, content);
 
 			broadcast("file_updated", {
-				contributor: contributorId,
+				contributor: username,
 				path: result.path,
 				size: result.size,
 				modifiedAt: result.modifiedAt,
@@ -207,15 +211,15 @@ export function createApp(storageRoot: string): Hono {
 
 	// --- File Delete ---
 
-	authed.delete("/v1/contributors/:contributorId/files/*", async (c) => {
+	authed.delete("/v1/contributors/:username/files/*", async (c) => {
 		const { contributor } = getAuthCtx(c);
-		const contributorId = c.req.param("contributorId");
+		const username = c.req.param("username");
 
-		if (contributor.id !== contributorId) {
+		if (contributor.username !== username) {
 			return c.json({ error: "You can only delete from your own contributor" }, 403);
 		}
 
-		const filePath = extractFilePath(c.req.path, contributorId);
+		const filePath = extractFilePath(c.req.path, username);
 		if (filePath === null) {
 			return c.json({ error: "Invalid URL encoding in path" }, 400);
 		}
@@ -225,10 +229,10 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		try {
-			await deleteFile(storageRoot, contributorId, filePath);
+			await deleteFile(storageRoot, username, filePath);
 
 			broadcast("file_deleted", {
-				contributor: contributorId,
+				contributor: username,
 				path: filePath,
 			});
 
@@ -246,28 +250,28 @@ export function createApp(storageRoot: string): Hono {
 
 	// --- File List ---
 
-	authed.get("/v1/contributors/:contributorId/files", async (c) => {
-		const contributorId = c.req.param("contributorId");
+	authed.get("/v1/contributors/:username/files", async (c) => {
+		const username = c.req.param("username");
 
-		if (!getContributorById(contributorId)) {
+		if (!getContributor(username)) {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
 		const prefix = c.req.query("prefix") || undefined;
-		const files = await listFiles(storageRoot, contributorId, prefix);
+		const files = await listFiles(storageRoot, username, prefix);
 		return c.json({ files });
 	});
 
 	// --- File Read ---
 
-	authed.get("/v1/contributors/:contributorId/files/*", async (c) => {
-		const contributorId = c.req.param("contributorId");
+	authed.get("/v1/contributors/:username/files/*", async (c) => {
+		const username = c.req.param("username");
 
-		if (!getContributorById(contributorId)) {
+		if (!getContributor(username)) {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const filePath = extractFilePath(c.req.path, contributorId);
+		const filePath = extractFilePath(c.req.path, username);
 		if (filePath === null) {
 			return c.json({ error: "Invalid URL encoding in path" }, 400);
 		}
@@ -277,7 +281,7 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		try {
-			const content = await readFileContent(storageRoot, contributorId, filePath);
+			const content = await readFileContent(storageRoot, username, filePath);
 			return c.text(content, 200, {
 				"Content-Type": "text/markdown",
 			});
@@ -327,14 +331,14 @@ export function createApp(storageRoot: string): Hono {
 		const contributorParam = c.req.query("contributor") || undefined;
 		const limit = parseInt(c.req.query("limit") || "10", 10);
 
-		// Resolve contributor param (accepts contributor ID or name) to QMD collection name
+		// Resolve contributor param to QMD collection name
 		let collectionName: string | undefined;
 		if (contributorParam) {
-			const contributor = getContributorById(contributorParam) ?? getContributorByName(contributorParam);
+			const contributor = getContributor(contributorParam);
 			if (!contributor) {
 				return c.json({ error: "Contributor not found" }, 404);
 			}
-			collectionName = contributor.name;
+			collectionName = contributor.username;
 		}
 
 		const results = await qmd.search(q, { collection: collectionName, limit });

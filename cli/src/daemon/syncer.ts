@@ -7,21 +7,21 @@ import { RetryQueue } from "./queue.js";
 
 export interface SyncerOptions {
   client: SeedvaultClient;
-  contributorId: string;
+  username: string;
   collections: CollectionConfig[];
   onLog: (msg: string) => void;
 }
 
 export class Syncer {
   private client: SeedvaultClient;
-  private contributorId: string;
+  private username: string;
   private collections: CollectionConfig[];
   private queue: RetryQueue;
   private log: (msg: string) => void;
 
   constructor(opts: SyncerOptions) {
     this.client = opts.client;
-    this.contributorId = opts.contributorId;
+    this.username = opts.username;
     this.collections = opts.collections;
     this.log = opts.onLog;
     this.queue = new RetryQueue(opts.client, opts.onLog);
@@ -65,7 +65,7 @@ export class Syncer {
     try {
       // Get server file listing for this collection's prefix
       const { files: serverFiles } = await this.client.listFiles(
-        this.contributorId,
+        this.username,
         collection.name + "/"
       );
 
@@ -98,13 +98,13 @@ export class Syncer {
         // Upload
         const content = await readFile(localFile.path, "utf-8");
         try {
-          await this.client.putFile(this.contributorId, serverPath, content);
+          await this.client.putFile(this.username, serverPath, content);
           uploaded++;
         } catch {
           // If server unreachable, queue it
           this.queue.enqueue({
             type: "put",
-            contributorId: this.contributorId,
+            username: this.username,
             serverPath,
             content,
             queuedAt: new Date().toISOString(),
@@ -117,13 +117,13 @@ export class Syncer {
         if (localServerPaths.has(f.path)) continue;
 
         try {
-          await this.client.deleteFile(this.contributorId, f.path);
+          await this.client.deleteFile(this.username, f.path);
           deleted++;
         } catch {
           // If server unreachable, queue it
           this.queue.enqueue({
             type: "delete",
-            contributorId: this.contributorId,
+            username: this.username,
             serverPath: f.path,
             content: null,
             queuedAt: new Date().toISOString(),
@@ -153,18 +153,18 @@ export class Syncer {
 
     try {
       const { files: serverFiles } = await this.client.listFiles(
-        this.contributorId,
+        this.username,
         collection.name + "/"
       );
 
       for (const f of serverFiles) {
         try {
-          await this.client.deleteFile(this.contributorId, f.path);
+          await this.client.deleteFile(this.username, f.path);
           deleted++;
         } catch {
           this.queue.enqueue({
             type: "delete",
-            contributorId: this.contributorId,
+            username: this.username,
             serverPath: f.path,
             content: null,
             queuedAt: new Date().toISOString(),
@@ -190,7 +190,7 @@ export class Syncer {
       this.log(`PUT ${event.serverPath} (${content.length} bytes)`);
       this.queue.enqueue({
         type: "put",
-        contributorId: this.contributorId,
+        username: this.username,
         serverPath: event.serverPath,
         content,
         queuedAt: new Date().toISOString(),
@@ -199,7 +199,7 @@ export class Syncer {
       this.log(`DELETE ${event.serverPath}`);
       this.queue.enqueue({
         type: "delete",
-        contributorId: this.contributorId,
+        username: this.username,
         serverPath: event.serverPath,
         content: null,
         queuedAt: new Date().toISOString(),

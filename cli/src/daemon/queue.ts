@@ -5,7 +5,7 @@ import { ApiError } from "../client.js";
 
 export interface QueuedOperation {
   type: "put" | "delete";
-  contributorId: string;
+  username: string;
   serverPath: string;
   /** For put operations, the file content. Null for deletes. */
   content: string | null;
@@ -70,9 +70,9 @@ export class RetryQueue {
       const op = this.items[0];
       try {
         if (op.type === "put" && op.content !== null) {
-          await this.client.putFile(op.contributorId, op.serverPath, op.content);
+          await this.client.putFile(op.username, op.serverPath, op.content);
         } else if (op.type === "delete") {
-          await this.client.deleteFile(op.contributorId, op.serverPath);
+          await this.client.deleteFile(op.username, op.serverPath);
         }
 
         // Success — remove from queue and reset backoff

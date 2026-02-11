@@ -9,7 +9,7 @@ function baseConfig(collections: Config["collections"]): Config {
   return {
     server: "http://127.0.0.1:3000",
     token: "sv_test",
-    contributorId: "contributor_test",
+    username: "test-user",
     collections,
   };
 }

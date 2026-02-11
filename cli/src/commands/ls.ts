@@ -11,7 +11,7 @@ export async function ls(args: string[]): Promise<void> {
   const client = createClient(config.server, config.token);
   const prefix = args[0] || undefined;
 
-  const { files } = await client.listFiles(config.contributorId, prefix);
+  const { files } = await client.listFiles(config.username, prefix);
 
   if (files.length === 0) {
     console.log(prefix ? `No files matching '${prefix}'.` : "No files in your contributor.");

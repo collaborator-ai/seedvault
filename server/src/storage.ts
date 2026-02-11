@@ -38,20 +38,20 @@ export function validatePath(filePath: string): string | null {
 }
 
 /** Resolve a validated file path to an absolute path on disk */
-function resolvePath(storageRoot: string, contributorId: string, filePath: string): string {
-  return join(storageRoot, contributorId, filePath);
+function resolvePath(storageRoot: string, contributor: string, filePath: string): string {
+  return join(storageRoot, contributor, filePath);
 }
 
 /** Ensure the contributor directory exists */
-export async function ensureContributorDir(storageRoot: string, contributorId: string): Promise<void> {
-  const dir = join(storageRoot, contributorId);
+export async function ensureContributorDir(storageRoot: string, contributor: string): Promise<void> {
+  const dir = join(storageRoot, contributor);
   await mkdir(dir, { recursive: true });
 }
 
 /** Write a file atomically (temp file + rename) */
 export async function writeFileAtomic(
   storageRoot: string,
-  contributorId: string,
+  contributor: string,
   filePath: string,
   content: string | Buffer
 ): Promise<{ path: string; size: number; modifiedAt: string }> {
@@ -61,7 +61,7 @@ export async function writeFileAtomic(
     throw new FileTooLargeError(contentBuf.length);
   }
 
-  const absPath = resolvePath(storageRoot, contributorId, filePath);
+  const absPath = resolvePath(storageRoot, contributor, filePath);
   const dir = dirname(absPath);
   await mkdir(dir, { recursive: true });
 
@@ -87,10 +87,10 @@ export async function writeFileAtomic(
 /** Delete a file and clean up empty parent directories */
 export async function deleteFile(
   storageRoot: string,
-  contributorId: string,
+  contributor: string,
   filePath: string
 ): Promise<void> {
-  const absPath = resolvePath(storageRoot, contributorId, filePath);
+  const absPath = resolvePath(storageRoot, contributor, filePath);
 
   if (!existsSync(absPath)) {
     throw new FileNotFoundError(filePath);
@@ -99,7 +99,7 @@ export async function deleteFile(
   await unlink(absPath);
 
   // Clean up empty parent directories up to the contributor root
-  const contributorRoot = join(storageRoot, contributorId);
+  const contributorRoot = join(storageRoot, contributor);
   let dir = dirname(absPath);
   while (dir !== contributorRoot && dir.startsWith(contributorRoot)) {
     try {
@@ -114,10 +114,10 @@ export async function deleteFile(
 /** Read a file's content */
 export async function readFileContent(
   storageRoot: string,
-  contributorId: string,
+  contributor: string,
   filePath: string
 ): Promise<string> {
-  const absPath = resolvePath(storageRoot, contributorId, filePath);
+  const absPath = resolvePath(storageRoot, contributor, filePath);
 
   if (!existsSync(absPath)) {
     throw new FileNotFoundError(filePath);
@@ -135,10 +135,10 @@ export interface FileEntry {
 /** List all files in a contributor, optionally filtered by prefix */
 export async function listFiles(
   storageRoot: string,
-  contributorId: string,
+  contributor: string,
   prefix?: string
 ): Promise<FileEntry[]> {
-  const contributorRoot = join(storageRoot, contributorId);
+  const contributorRoot = join(storageRoot, contributor);
 
   if (!existsSync(contributorRoot)) {
     return [];

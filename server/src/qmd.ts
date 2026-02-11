@@ -23,9 +23,9 @@ export async function addCollection(
   storageRoot: string,
   contributor: Contributor
 ): Promise<void> {
-  const dir = `${storageRoot}/${contributor.id}`;
+  const dir = `${storageRoot}/${contributor.username}`;
   const proc = Bun.spawn(
-    ["qmd", "collection", "add", dir, "--name", contributor.name, "--mask", "**/*.md"],
+    ["qmd", "collection", "add", dir, "--name", contributor.username, "--mask", "**/*.md"],
     { stdout: "pipe", stderr: "pipe" }
   );
   const exitCode = await proc.exited;
@@ -33,7 +33,7 @@ export async function addCollection(
     const stderr = await new Response(proc.stderr).text();
     // Ignore "already exists" errors
     if (!stderr.includes("already exists")) {
-      console.error(`QMD collection add failed for ${contributor.name}:`, stderr);
+      console.error(`QMD collection add failed for ${contributor.username}:`, stderr);
     }
   }
 }

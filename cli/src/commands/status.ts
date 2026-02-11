@@ -19,7 +19,7 @@ export async function status(): Promise<void> {
 
   // Config
   console.log(`  Server:  ${config.server}`);
-  console.log(`  Contributor: ${config.contributorId}`);
+  console.log(`  Contributor: ${config.username}`);
 
   // Daemon
   try {

@@ -9,14 +9,14 @@ export interface SeedvaultClient {
   createInvite(): Promise<InviteResponse>;
   /** GET /v1/contributors */
   listContributors(): Promise<ContributorsResponse>;
-  /** PUT /v1/contributors/:contributorId/files/* */
-  putFile(contributorId: string, path: string, content: string): Promise<FileWriteResponse>;
-  /** DELETE /v1/contributors/:contributorId/files/* */
-  deleteFile(contributorId: string, path: string): Promise<void>;
-  /** GET /v1/contributors/:contributorId/files */
-  listFiles(contributorId: string, prefix?: string): Promise<FilesResponse>;
-  /** GET /v1/contributors/:contributorId/files/* */
-  getFile(contributorId: string, path: string): Promise<string>;
+  /** PUT /v1/contributors/:username/files/* */
+  putFile(username: string, path: string, content: string): Promise<FileWriteResponse>;
+  /** DELETE /v1/contributors/:username/files/* */
+  deleteFile(username: string, path: string): Promise<void>;
+  /** GET /v1/contributors/:username/files */
+  listFiles(username: string, prefix?: string): Promise<FilesResponse>;
+  /** GET /v1/contributors/:username/files/* */
+  getFile(username: string, path: string): Promise<string>;
   /** GET /health */
   health(): Promise<HealthResponse>;
 }
@@ -24,7 +24,7 @@ export interface SeedvaultClient {
 // --- Response types ---
 
 export interface SignupResponse {
-  contributor: { id: string; name: string; createdAt: string };
+  contributor: { username: string; createdAt: string };
   token: string;
 }
 
@@ -34,7 +34,7 @@ export interface InviteResponse {
 }
 
 export interface ContributorsResponse {
-  contributors: Array<{ id: string; name: string; createdAt: string }>;
+  contributors: Array<{ username: string; createdAt: string }>;
 }
 
 export interface FileWriteResponse {
@@ -133,26 +133,26 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
       return res.json();
     },
 
-    async putFile(contributorId: string, path: string, content: string): Promise<FileWriteResponse> {
-      const res = await request("PUT", `/v1/contributors/${contributorId}/files/${encodePath(path)}`, {
+    async putFile(username: string, path: string, content: string): Promise<FileWriteResponse> {
+      const res = await request("PUT", `/v1/contributors/${username}/files/${encodePath(path)}`, {
         body: content,
         contentType: "text/markdown",
       });
       return res.json();
     },
 
-    async deleteFile(contributorId: string, path: string): Promise<void> {
-      await request("DELETE", `/v1/contributors/${contributorId}/files/${encodePath(path)}`);
+    async deleteFile(username: string, path: string): Promise<void> {
+      await request("DELETE", `/v1/contributors/${username}/files/${encodePath(path)}`);
     },
 
-    async listFiles(contributorId: string, prefix?: string): Promise<FilesResponse> {
+    async listFiles(username: string, prefix?: string): Promise<FilesResponse> {
       const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
-      const res = await request("GET", `/v1/contributors/${contributorId}/files${qs}`);
+      const res = await request("GET", `/v1/contributors/${username}/files${qs}`);
       return res.json();
     },
 
-    async getFile(contributorId: string, path: string): Promise<string> {
-      const res = await request("GET", `/v1/contributors/${contributorId}/files/${encodePath(path)}`);
+    async getFile(username: string, path: string): Promise<string> {
+      const res = await request("GET", `/v1/contributors/${username}/files/${encodePath(path)}`);
       return res.text();
     },
 

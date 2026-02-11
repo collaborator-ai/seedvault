@@ -19,9 +19,8 @@ export async function contributors(): Promise<void> {
 
   console.log("Contributors:\n");
   for (const contributor of contributors) {
-    const you = contributor.id === config.contributorId ? " (you)" : "";
-    console.log(`  ${contributor.name}${you}`);
-    console.log(`    ID:      ${contributor.id}`);
+    const you = contributor.username === config.username ? " (you)" : "";
+    console.log(`  ${contributor.username}${you}`);
     console.log(`    Created: ${new Date(contributor.createdAt).toLocaleString()}`);
     console.log();
   }

@@ -152,7 +152,7 @@
         return root;
       }
 
-      function renderTree(node, parentUl, contributorId, depth) {
+      function renderTree(node, parentUl, username, depth) {
         const keys = Object.keys(node).filter((k) => k !== "__file").sort((a, b) => {
           const aDir = Object.keys(node[a]).some((k) => k !== "__file");
           const bDir = Object.keys(node[b]).some((k) => k !== "__file");
@@ -170,8 +170,8 @@
           if (isFile) {
             row.innerHTML = '<span class="arrow">&nbsp;</span>' + key;
             row.dataset.path = child.__file;
-            row.dataset.contributor = contributorId;
-            row.onclick = () => loadContent(contributorId, child.__file, row);
+            row.dataset.contributor = username;
+            row.onclick = () => loadContent(username, child.__file, row);
           } else {
             const sub = document.createElement("ul");
             row.innerHTML = '<span class="arrow">&#9660;</span>' + key;
@@ -179,7 +179,7 @@
               sub.classList.toggle("collapsed");
               row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
             };
-            renderTree(child, sub, contributorId, depth + 1);
+            renderTree(child, sub, username, depth + 1);
             li.appendChild(row);
             li.appendChild(sub);
             parentUl.appendChild(li);
@@ -201,19 +201,19 @@
         if (active) active.classList.add("active");
       }
 
-      function getLoadedContributorList(contributorId) {
+      function getLoadedContributorList(username) {
         return filesEl.querySelector(
-          'ul[data-contributor="' + CSS.escape(contributorId) + '"][data-loaded="true"]'
+          'ul[data-contributor="' + CSS.escape(username) + '"][data-loaded="true"]'
         );
       }
 
-      async function loadContributorFiles(contributorId, sub, opts = {}) {
+      async function loadContributorFiles(username, sub, opts = {}) {
         const silent = !!opts.silent;
         sub.innerHTML = "";
         if (!silent) status("Loading files...");
-        const { files } = await (await api("/v1/contributors/" + encodeURIComponent(contributorId) + "/files")).json();
+        const { files } = await (await api("/v1/contributors/" + encodeURIComponent(username) + "/files")).json();
         const tree = buildTree(files.map((f) => f.path));
-        renderTree(tree, sub, contributorId, 1);
+        renderTree(tree, sub, username, 1);
         markActiveRow();
         if (!silent) status(files.length + " file(s)");
       }
@@ -230,10 +230,10 @@
           row.className = "tree-row";
           row.style.paddingLeft = "8px";
           const sub = document.createElement("ul");
-          sub.dataset.contributor = b.id;
+          sub.dataset.contributor = b.username;
           sub.dataset.loaded = "false";
           let loaded = false;
-          row.innerHTML = '<span class="arrow">&#9654;</span>' + b.name;
+          row.innerHTML = '<span class="arrow">&#9654;</span>' + b.username;
           row.onclick = async () => {
             const collapsed = sub.classList.contains("collapsed") || !sub.hasChildNodes();
             if (collapsed) {
@@ -242,7 +242,7 @@
               if (!loaded) {
                 loaded = true;
                 sub.dataset.loaded = "true";
-                await loadContributorFiles(b.id, sub);
+                await loadContributorFiles(b.username, sub);
               }
             } else {
               sub.classList.add("collapsed");
@@ -253,29 +253,29 @@
           li.appendChild(sub);
           filesEl.appendChild(li);
 
-          if (b.id === savedContributor) {
+          if (b.username === savedContributor) {
             sub.classList.remove("collapsed");
             row.querySelector(".arrow").innerHTML = "&#9660;";
             loaded = true;
             sub.dataset.loaded = "true";
-            await loadContributorFiles(b.id, sub);
+            await loadContributorFiles(b.username, sub);
             if (savedFile) {
               const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
-              if (match) await loadContent(b.id, savedFile, match);
+              if (match) await loadContent(b.username, savedFile, match);
             }
           }
         }
         status(contributors.length + " contributor(s)");
       }
 
-      async function loadContent(contributorId, path, row) {
+      async function loadContent(username, path, row) {
         filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
         row.classList.add("active");
-        localStorage.setItem("sv-contributor", contributorId);
+        localStorage.setItem("sv-contributor", username);
         localStorage.setItem("sv-file", path);
         status("Loading " + path + "...");
         const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-        const res = await api("/v1/contributors/" + encodeURIComponent(contributorId) + "/files/" + encodedPath);
+        const res = await api("/v1/contributors/" + encodeURIComponent(username) + "/files/" + encodedPath);
         contentEl.textContent = await res.text();
         status(path);
       }
@@ -290,20 +290,20 @@
       let evtSource = null;
       const contributorReloadTimers = new Map();
 
-      function scheduleContributorReload(contributorId) {
-        if (!getLoadedContributorList(contributorId)) return;
+      function scheduleContributorReload(username) {
+        if (!getLoadedContributorList(username)) return;
 
-        const existing = contributorReloadTimers.get(contributorId);
+        const existing = contributorReloadTimers.get(username);
         if (existing) clearTimeout(existing);
 
         const timer = setTimeout(() => {
-          contributorReloadTimers.delete(contributorId);
-          const targetUl = getLoadedContributorList(contributorId);
+          contributorReloadTimers.delete(username);
+          const targetUl = getLoadedContributorList(username);
           if (!targetUl) return;
-          loadContributorFiles(contributorId, targetUl, { silent: true }).catch((e) => status(e.message));
+          loadContributorFiles(username, targetUl, { silent: true }).catch((e) => status(e.message));
         }, 100);
 
-        contributorReloadTimers.set(contributorId, timer);
+        contributorReloadTimers.set(username, timer);
       }
 
       function connectSSE() {
