@@ -158,7 +158,13 @@ async function walkDir(
   prefix: string | undefined,
   results: FileEntry[]
 ): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    // Directory may have been removed by a concurrent delete cleanup
+    return;
+  }
 
   for (const entry of entries) {
     const fullPath = join(dir, entry.name);

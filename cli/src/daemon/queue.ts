@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { getQueuePath } from "../config.js";
 import type { SeedvaultClient } from "../client.js";
+import { ApiError } from "../client.js";
 
 // --- Types ---
 
@@ -84,9 +85,19 @@ export class RetryQueue {
         this.saveToDisk();
         this.backoff = MIN_BACKOFF;
       } catch (e: unknown) {
+        // API errors (4xx) mean the server is reachable but the op is invalid —
+        // drop the op and continue flushing.
+        if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+          this.onStatus(`Dropping failed op: ${op.type} ${op.serverPath} (${e.status})`);
+          this.items.shift();
+          this.saveToDisk();
+          continue;
+        }
+
         // Network error — stop flushing, schedule retry
+        const errMsg = e instanceof Error ? e.message : String(e);
         this.onStatus(
-          `Server unreachable, ${this.items.length} op(s) queued. Retry in ${this.backoff / 1000}s.`
+          `Server unreachable (${errMsg}), ${this.items.length} op(s) queued. Retry in ${this.backoff / 1000}s.`
         );
         this.flushing = false;
         this.scheduleFlush(this.backoff);

@@ -12,12 +12,14 @@ export function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
 }
 
-/** Extract bearer token from Authorization header */
+/** Extract token from Authorization header or ?token= query param (for EventSource) */
 function extractToken(c: Context): string | null {
   const header = c.req.header("Authorization");
-  if (!header) return null;
-  const match = header.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1] : null;
+  if (header) {
+    const match = header.match(/^Bearer\s+(.+)$/i);
+    if (match) return match[1];
+  }
+  return c.req.query("token") || null;
 }
 
 export interface AuthContext {

@@ -97,7 +97,7 @@
   </head>
   <body>
     <div class="top">
-      <input id="token" type="password" placeholder="sv_..." />
+      <input id="token" type="password" placeholder="API key (&quot;sv_...&quot;)" />
       <button id="connect">Load</button>
     </div>
     <div class="grid">
@@ -260,10 +260,143 @@
       $("connect").onclick = () => {
         token = tokenEl.value.trim();
         localStorage.setItem("sv-token", token);
-        loadBanks().catch((e) => status(e.message));
+        loadBanks().then(() => connectSSE()).catch((e) => status(e.message));
       };
 
-      if (token) loadBanks().catch((e) => status(e.message));
+      // --- SSE real-time updates ---
+      let evtSource = null;
+
+      function connectSSE() {
+        if (evtSource) evtSource.close();
+        if (!token) return;
+
+        evtSource = new EventSource("/v1/events?token=" + encodeURIComponent(token));
+
+        evtSource.addEventListener("file_updated", (e) => {
+          const { bank, path, size, modifiedAt } = JSON.parse(e.data);
+          // Add file to tree if missing
+          const existing = filesEl.querySelector('[data-path="' + CSS.escape(path) + '"]');
+          if (!existing) {
+            addFileToTree(bank, path);
+          }
+          // If this file is currently open, reload its content
+          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-bank") === bank) {
+            const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+            api("/v1/banks/" + encodeURIComponent(bank) + "/files/" + encodedPath)
+              .then((res) => res.text())
+              .then((text) => { contentEl.textContent = text; });
+          }
+        });
+
+        evtSource.addEventListener("file_deleted", (e) => {
+          const { bank, path } = JSON.parse(e.data);
+          const row = filesEl.querySelector('[data-path="' + CSS.escape(path) + '"]');
+          if (row) {
+            const li = row.parentElement;
+            li.remove();
+            // Clean up empty parent directories
+            pruneEmptyDirs(filesEl);
+          }
+          // If this file was being viewed, clear the content
+          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-bank") === bank) {
+            contentEl.textContent = "";
+            status("File deleted: " + path);
+          }
+        });
+
+        evtSource.onerror = () => {
+          // EventSource auto-reconnects
+        };
+      }
+
+      /** Remove empty <ul> directory containers left after file deletions.
+       *  Preserves bank-level nodes (direct children of #files). */
+      function pruneEmptyDirs(root) {
+        const uls = root.querySelectorAll("ul");
+        for (let i = uls.length - 1; i >= 0; i--) {
+          const ul = uls[i];
+          if (ul.id === "files") continue;
+          if (ul.children.length === 0) {
+            const parentLi = ul.parentElement;
+            if (parentLi && parentLi.parentElement !== filesEl) parentLi.remove();
+          }
+        }
+      }
+
+      /** Insert a new file path into the existing tree UI */
+      function addFileToTree(bankId, path) {
+        // Find the bank's sub <ul>
+        const bankRows = filesEl.querySelectorAll('[data-bank]');
+        let targetBankId = null;
+        let targetUl = null;
+        // Walk top-level <li> nodes to find the bank
+        for (const li of filesEl.children) {
+          const sub = li.querySelector("ul");
+          if (!sub) continue;
+          // Check if any file in this subtree belongs to the bank
+          const firstFile = sub.querySelector("[data-bank]");
+          if (firstFile && firstFile.dataset.bank === bankId) {
+            targetUl = sub;
+            break;
+          }
+        }
+        if (!targetUl) return; // bank not expanded yet, nothing to update
+
+        // Split path into segments and navigate/create tree nodes
+        const parts = path.split("/");
+        let currentUl = targetUl;
+
+        for (let i = 0; i < parts.length; i++) {
+          const part = parts[i];
+          const isLast = i === parts.length - 1;
+          const depth = i + 1;
+
+          if (isLast) {
+            // Create file row
+            const li = document.createElement("li");
+            const row = document.createElement("div");
+            row.className = "tree-row";
+            row.style.paddingLeft = (depth * 12 + 8) + "px";
+            row.innerHTML = '<span class="arrow">&nbsp;</span>' + part;
+            row.dataset.path = path;
+            row.dataset.bank = bankId;
+            row.onclick = () => loadContent(bankId, path, row);
+            li.appendChild(row);
+            currentUl.appendChild(li);
+          } else {
+            // Find or create directory
+            let found = null;
+            for (const li of currentUl.children) {
+              const row = li.querySelector(".tree-row");
+              if (!row) continue;
+              // Directory rows don't have data-path
+              if (!row.dataset.path && row.textContent.trim().replace(/[▶▼]/g, "").trim() === part) {
+                found = li.querySelector("ul");
+                break;
+              }
+            }
+            if (!found) {
+              const li = document.createElement("li");
+              const row = document.createElement("div");
+              row.className = "tree-row";
+              row.style.paddingLeft = (depth * 12 + 8) + "px";
+              const sub = document.createElement("ul");
+              row.innerHTML = '<span class="arrow">&#9660;</span>' + part;
+              row.onclick = () => {
+                sub.classList.toggle("collapsed");
+                row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
+              };
+              li.appendChild(row);
+              li.appendChild(sub);
+              currentUl.appendChild(li);
+              found = sub;
+            }
+            currentUl = found;
+          }
+        }
+      }
+
+      if (token) loadBanks().then(() => connectSSE()).catch((e) => status(e.message));
 
       // Divider drag
       const divider = $("divider");

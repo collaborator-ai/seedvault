@@ -5,6 +5,7 @@
   "scripts": {
     "dev:server": "bun run --filter @seedvault/server dev",
     "dev:cli": "bun run --filter @seedvault/cli dev",
-    "check": "bun run --filter '*' check"
+    "check": "bun run --filter '*' check",
+    "test": "bun test test/"
   }
 }

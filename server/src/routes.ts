@@ -2,31 +2,31 @@ import { Hono } from "hono";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import {
-  createBank,
-  createApiKey,
-  createInvite,
-  getInvite,
-  markInviteUsed,
-  getBankById,
-  getBankByName,
-  hasAnyBank,
-  listBanks,
+	createBank,
+	createApiKey,
+	createInvite,
+	getInvite,
+	markInviteUsed,
+	getBankById,
+	getBankByName,
+	hasAnyBank,
+	listBanks,
 } from "./db.js";
 import {
-  generateToken,
-  hashToken,
-  authMiddleware,
-  getAuthCtx,
+	generateToken,
+	hashToken,
+	authMiddleware,
+	getAuthCtx,
 } from "./auth.js";
 import {
-  validatePath,
-  writeFileAtomic,
-  deleteFile,
-  readFileContent,
-  listFiles,
-  ensureBankDir,
-  FileNotFoundError,
-  FileTooLargeError,
+	validatePath,
+	writeFileAtomic,
+	deleteFile,
+	readFileContent,
+	listFiles,
+	ensureBankDir,
+	FileNotFoundError,
+	FileTooLargeError,
 } from "./storage.js";
 import { broadcast, addClient, removeClient } from "./sse.js";
 import * as qmd from "./qmd.js";
@@ -36,300 +36,313 @@ const isDev = process.env.NODE_ENV !== "production";
 const uiHtmlCached = readFileSync(uiPath, "utf-8");
 
 /** Extract and decode the file path from a wildcard route */
-function extractFilePath(reqPath: string, bankId: string): string {
-  const raw = reqPath.replace(`/v1/banks/${bankId}/files/`, "");
-  return decodeURIComponent(raw);
+function extractFilePath(reqPath: string, bankId: string): string | null {
+	const raw = reqPath.replace(`/v1/banks/${bankId}/files/`, "");
+	try {
+		return decodeURIComponent(raw);
+	} catch {
+		return null;
+	}
 }
 
 export function createApp(storageRoot: string): Hono {
-  const app = new Hono();
+	const app = new Hono();
 
-  app.get("/", (c) => {
-    return c.html(isDev ? readFileSync(uiPath, "utf-8") : uiHtmlCached);
-  });
+	app.get("/", (c) => {
+		return c.html(isDev ? readFileSync(uiPath, "utf-8") : uiHtmlCached);
+	});
 
-  // --- Health (no auth) ---
+	// --- Health (no auth) ---
 
-  app.get("/health", (c) => {
-    return c.json({ status: "ok" });
-  });
+	app.get("/health", (c) => {
+		return c.json({ status: "ok" });
+	});
 
-  // --- Signup (no auth) ---
+	// --- Signup (no auth) ---
 
-  app.post("/v1/signup", async (c) => {
-    const body = await c.req.json<{ name?: string; invite?: string }>();
+	app.post("/v1/signup", async (c) => {
+		const body = await c.req.json<{ name?: string; invite?: string }>();
 
-    if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
-      return c.json({ error: "name is required" }, 400);
-    }
+		if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
+			return c.json({ error: "name is required" }, 400);
+		}
 
-    const name = body.name.trim();
-    const isFirstUser = !hasAnyBank();
+		const name = body.name.trim();
+		const isFirstUser = !hasAnyBank();
 
-    // Validate invite (required unless first user)
-    if (!isFirstUser) {
-      if (!body.invite) {
-        return c.json({ error: "Invite code is required" }, 400);
-      }
-      const invite = getInvite(body.invite);
-      if (!invite) {
-        return c.json({ error: "Invalid invite code" }, 400);
-      }
-      if (invite.used_at) {
-        return c.json({ error: "Invite code has already been used" }, 400);
-      }
-    }
+		// Validate invite (required unless first user)
+		if (!isFirstUser) {
+			if (!body.invite) {
+				return c.json({ error: "Invite code is required" }, 400);
+			}
+			const invite = getInvite(body.invite);
+			if (!invite) {
+				return c.json({ error: "Invalid invite code" }, 400);
+			}
+			if (invite.used_at) {
+				return c.json({ error: "Invite code has already been used" }, 400);
+			}
+		}
 
-    // Check name uniqueness
-    if (getBankByName(name)) {
-      return c.json({ error: "A bank with that name already exists" }, 409);
-    }
+		// Check name uniqueness
+		if (getBankByName(name)) {
+			return c.json({ error: "A bank with that name already exists" }, 409);
+		}
 
-    // Create bank
-    const bank = createBank(name, isFirstUser);
-    await ensureBankDir(storageRoot, bank.id);
+		// Create bank
+		const bank = createBank(name, isFirstUser);
+		await ensureBankDir(storageRoot, bank.id);
 
-    // Register as QMD collection
-    qmd.addCollection(storageRoot, bank).catch((e) =>
-      console.error("Failed to register QMD collection:", e)
-    );
+		// Register as QMD collection
+		qmd.addCollection(storageRoot, bank).catch((e) =>
+			console.error("Failed to register QMD collection:", e)
+		);
 
-    // Create token
-    const rawToken = generateToken();
-    createApiKey(hashToken(rawToken), `${name}-default`, bank.id);
+		// Create token
+		const rawToken = generateToken();
+		createApiKey(hashToken(rawToken), `${name}-default`, bank.id);
 
-    // Mark invite as used
-    if (!isFirstUser && body.invite) {
-      markInviteUsed(body.invite, bank.id);
-    }
+		// Mark invite as used
+		if (!isFirstUser && body.invite) {
+			markInviteUsed(body.invite, bank.id);
+		}
 
-    return c.json(
-      {
-        bank: {
-          id: bank.id,
-          name: bank.name,
-          createdAt: bank.created_at,
-        },
-        token: rawToken,
-      },
-      201
-    );
-  });
+		return c.json(
+			{
+				bank: {
+					id: bank.id,
+					name: bank.name,
+					createdAt: bank.created_at,
+				},
+				token: rawToken,
+			},
+			201
+		);
+	});
 
-  // --- All routes below require auth ---
+	// --- All routes below require auth ---
 
-  const authed = new Hono();
-  authed.use("*", authMiddleware);
+	const authed = new Hono();
+	authed.use("*", authMiddleware);
 
-  // --- Invites ---
+	// --- Invites ---
 
-  authed.post("/v1/invites", (c) => {
-    const { bank } = getAuthCtx(c);
+	authed.post("/v1/invites", (c) => {
+		const { bank } = getAuthCtx(c);
 
-    if (!bank.is_operator) {
-      return c.json({ error: "Only the operator can generate invite codes" }, 403);
-    }
+		if (!bank.is_operator) {
+			return c.json({ error: "Only the operator can generate invite codes" }, 403);
+		}
 
-    const invite = createInvite(bank.id);
-    return c.json(
-      {
-        invite: invite.id,
-        createdAt: invite.created_at,
-      },
-      201
-    );
-  });
+		const invite = createInvite(bank.id);
+		return c.json(
+			{
+				invite: invite.id,
+				createdAt: invite.created_at,
+			},
+			201
+		);
+	});
 
-  // --- Banks ---
+	// --- Banks ---
 
-  authed.get("/v1/banks", (c) => {
-    const banks = listBanks();
-    return c.json({
-      banks: banks.map((b) => ({
-        id: b.id,
-        name: b.name,
-        createdAt: b.created_at,
-      })),
-    });
-  });
+	authed.get("/v1/banks", (c) => {
+		const banks = listBanks();
+		return c.json({
+			banks: banks.map((b) => ({
+				id: b.id,
+				name: b.name,
+				createdAt: b.created_at,
+			})),
+		});
+	});
 
-  // --- File Write ---
+	// --- File Write ---
 
-  authed.put("/v1/banks/:bankId/files/*", async (c) => {
-    const { bank } = getAuthCtx(c);
-    const bankId = c.req.param("bankId");
+	authed.put("/v1/banks/:bankId/files/*", async (c) => {
+		const { bank } = getAuthCtx(c);
+		const bankId = c.req.param("bankId");
 
-    if (bank.id !== bankId) {
-      return c.json({ error: "You can only write to your own bank" }, 403);
-    }
+		if (bank.id !== bankId) {
+			return c.json({ error: "You can only write to your own bank" }, 403);
+		}
 
-    // Verify bank exists
-    if (!getBankById(bankId)) {
-      return c.json({ error: "Bank not found" }, 404);
-    }
+		// Verify bank exists
+		if (!getBankById(bankId)) {
+			return c.json({ error: "Bank not found" }, 404);
+		}
 
-    const filePath = extractFilePath(c.req.path, bankId);
-    const pathError = validatePath(filePath);
-    if (pathError) {
-      return c.json({ error: pathError }, 400);
-    }
+		const filePath = extractFilePath(c.req.path, bankId);
+		if (filePath === null) {
+			return c.json({ error: "Invalid URL encoding in path" }, 400);
+		}
+		const pathError = validatePath(filePath);
+		if (pathError) {
+			return c.json({ error: pathError }, 400);
+		}
 
-    const content = await c.req.text();
+		const content = await c.req.text();
 
-    try {
-      const result = await writeFileAtomic(storageRoot, bankId, filePath, content);
+		try {
+			const result = await writeFileAtomic(storageRoot, bankId, filePath, content);
 
-      broadcast("file_updated", {
-        bank: bankId,
-        path: result.path,
-        size: result.size,
-        modifiedAt: result.modifiedAt,
-      });
+			broadcast("file_updated", {
+				bank: bankId,
+				path: result.path,
+				size: result.size,
+				modifiedAt: result.modifiedAt,
+			});
 
-      // Trigger QMD re-index (async, doesn't block response)
-      qmd.triggerUpdate();
+			// Trigger QMD re-index (async, doesn't block response)
+			qmd.triggerUpdate();
 
-      return c.json(result);
-    } catch (e) {
-      if (e instanceof FileTooLargeError) {
-        return c.json({ error: e.message }, 413);
-      }
-      throw e;
-    }
-  });
+			return c.json(result);
+		} catch (e) {
+			if (e instanceof FileTooLargeError) {
+				return c.json({ error: e.message }, 413);
+			}
+			throw e;
+		}
+	});
 
-  // --- File Delete ---
+	// --- File Delete ---
 
-  authed.delete("/v1/banks/:bankId/files/*", async (c) => {
-    const { bank } = getAuthCtx(c);
-    const bankId = c.req.param("bankId");
+	authed.delete("/v1/banks/:bankId/files/*", async (c) => {
+		const { bank } = getAuthCtx(c);
+		const bankId = c.req.param("bankId");
 
-    if (bank.id !== bankId) {
-      return c.json({ error: "You can only delete from your own bank" }, 403);
-    }
+		if (bank.id !== bankId) {
+			return c.json({ error: "You can only delete from your own bank" }, 403);
+		}
 
-    const filePath = extractFilePath(c.req.path, bankId);
-    const pathError = validatePath(filePath);
-    if (pathError) {
-      return c.json({ error: pathError }, 400);
-    }
+		const filePath = extractFilePath(c.req.path, bankId);
+		if (filePath === null) {
+			return c.json({ error: "Invalid URL encoding in path" }, 400);
+		}
+		const pathError = validatePath(filePath);
+		if (pathError) {
+			return c.json({ error: pathError }, 400);
+		}
 
-    try {
-      await deleteFile(storageRoot, bankId, filePath);
+		try {
+			await deleteFile(storageRoot, bankId, filePath);
 
-      broadcast("file_deleted", {
-        bank: bankId,
-        path: filePath,
-      });
+			broadcast("file_deleted", {
+				bank: bankId,
+				path: filePath,
+			});
 
-      // Trigger QMD re-index (async, doesn't block response)
-      qmd.triggerUpdate();
+			// Trigger QMD re-index (async, doesn't block response)
+			qmd.triggerUpdate();
 
-      return c.body(null, 204);
-    } catch (e) {
-      if (e instanceof FileNotFoundError) {
-        return c.json({ error: "File not found" }, 404);
-      }
-      throw e;
-    }
-  });
+			return c.body(null, 204);
+		} catch (e) {
+			if (e instanceof FileNotFoundError) {
+				return c.json({ error: "File not found" }, 404);
+			}
+			throw e;
+		}
+	});
 
-  // --- File List ---
+	// --- File List ---
 
-  authed.get("/v1/banks/:bankId/files", async (c) => {
-    const bankId = c.req.param("bankId");
+	authed.get("/v1/banks/:bankId/files", async (c) => {
+		const bankId = c.req.param("bankId");
 
-    if (!getBankById(bankId)) {
-      return c.json({ error: "Bank not found" }, 404);
-    }
+		if (!getBankById(bankId)) {
+			return c.json({ error: "Bank not found" }, 404);
+		}
 
-    const prefix = c.req.query("prefix") || undefined;
-    const files = await listFiles(storageRoot, bankId, prefix);
-    return c.json({ files });
-  });
+		const prefix = c.req.query("prefix") || undefined;
+		const files = await listFiles(storageRoot, bankId, prefix);
+		return c.json({ files });
+	});
 
-  // --- File Read ---
+	// --- File Read ---
 
-  authed.get("/v1/banks/:bankId/files/*", async (c) => {
-    const bankId = c.req.param("bankId");
+	authed.get("/v1/banks/:bankId/files/*", async (c) => {
+		const bankId = c.req.param("bankId");
 
-    if (!getBankById(bankId)) {
-      return c.json({ error: "Bank not found" }, 404);
-    }
+		if (!getBankById(bankId)) {
+			return c.json({ error: "Bank not found" }, 404);
+		}
 
-    const filePath = extractFilePath(c.req.path, bankId);
-    const pathError = validatePath(filePath);
-    if (pathError) {
-      return c.json({ error: pathError }, 400);
-    }
+		const filePath = extractFilePath(c.req.path, bankId);
+		if (filePath === null) {
+			return c.json({ error: "Invalid URL encoding in path" }, 400);
+		}
+		const pathError = validatePath(filePath);
+		if (pathError) {
+			return c.json({ error: pathError }, 400);
+		}
 
-    try {
-      const content = await readFileContent(storageRoot, bankId, filePath);
-      return c.text(content, 200, {
-        "Content-Type": "text/markdown",
-      });
-    } catch (e) {
-      if (e instanceof FileNotFoundError) {
-        return c.json({ error: "File not found" }, 404);
-      }
-      throw e;
-    }
-  });
+		try {
+			const content = await readFileContent(storageRoot, bankId, filePath);
+			return c.text(content, 200, {
+				"Content-Type": "text/markdown",
+			});
+		} catch (e) {
+			if (e instanceof FileNotFoundError) {
+				return c.json({ error: "File not found" }, 404);
+			}
+			throw e;
+		}
+	});
 
-  // --- SSE Events ---
+	// --- SSE Events ---
 
-  authed.get("/v1/events", (c) => {
-    let ctrl: ReadableStreamDefaultController;
-    const stream = new ReadableStream({
-      start(controller) {
-        ctrl = controller;
-        addClient(controller);
+	authed.get("/v1/events", (c) => {
+		let ctrl: ReadableStreamDefaultController;
+		const stream = new ReadableStream({
+			start(controller) {
+				ctrl = controller;
+				addClient(controller);
 
-        // Send initial connected event
-        const msg = `event: connected\ndata: {}\n\n`;
-        controller.enqueue(new TextEncoder().encode(msg));
-      },
-      cancel() {
-        removeClient(ctrl);
-      },
-    });
+				// Send initial connected event
+				const msg = `event: connected\ndata: {}\n\n`;
+				controller.enqueue(new TextEncoder().encode(msg));
+			},
+			cancel() {
+				removeClient(ctrl);
+			},
+		});
 
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      },
-    });
-  });
+		return new Response(stream, {
+			headers: {
+				"Content-Type": "text/event-stream",
+				"Cache-Control": "no-cache",
+				Connection: "keep-alive",
+			},
+		});
+	});
 
-  // --- Search (proxy to QMD) ---
+	// --- Search (proxy to QMD) ---
 
-  authed.get("/v1/search", async (c) => {
-    const q = c.req.query("q");
-    if (!q) {
-      return c.json({ error: "q parameter is required" }, 400);
-    }
+	authed.get("/v1/search", async (c) => {
+		const q = c.req.query("q");
+		if (!q) {
+			return c.json({ error: "q parameter is required" }, 400);
+		}
 
-    const bankParam = c.req.query("bank") || undefined;
-    const limit = parseInt(c.req.query("limit") || "10", 10);
+		const bankParam = c.req.query("bank") || undefined;
+		const limit = parseInt(c.req.query("limit") || "10", 10);
 
-    // Resolve bank param (accepts bank ID or name) to QMD collection name
-    let collectionName: string | undefined;
-    if (bankParam) {
-      const bank = getBankById(bankParam) ?? getBankByName(bankParam);
-      if (!bank) {
-        return c.json({ error: "Bank not found" }, 404);
-      }
-      collectionName = bank.name;
-    }
+		// Resolve bank param (accepts bank ID or name) to QMD collection name
+		let collectionName: string | undefined;
+		if (bankParam) {
+			const bank = getBankById(bankParam) ?? getBankByName(bankParam);
+			if (!bank) {
+				return c.json({ error: "Bank not found" }, 404);
+			}
+			collectionName = bank.name;
+		}
 
-    const results = await qmd.search(q, { collection: collectionName, limit });
-    return c.json({ results });
-  });
+		const results = await qmd.search(q, { collection: collectionName, limit });
+		return c.json({ results });
+	});
 
-  // Mount authed routes
-  app.route("/", authed);
+	// Mount authed routes
+	app.route("/", authed);
 
-  return app;
+	return app;
 }

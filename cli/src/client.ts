@@ -70,6 +70,11 @@ export class ApiError extends Error {
 
 // --- Implementation ---
 
+/** Encode each path segment individually, preserving slashes */
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 export function createClient(serverUrl: string, token?: string): SeedvaultClient {
   const base = serverUrl.replace(/\/+$/, "");
 
@@ -129,7 +134,7 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     },
 
     async putFile(bankId: string, path: string, content: string): Promise<FileWriteResponse> {
-      const res = await request("PUT", `/v1/banks/${bankId}/files/${path}`, {
+      const res = await request("PUT", `/v1/banks/${bankId}/files/${encodePath(path)}`, {
         body: content,
         contentType: "text/markdown",
       });
@@ -137,7 +142,7 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     },
 
     async deleteFile(bankId: string, path: string): Promise<void> {
-      await request("DELETE", `/v1/banks/${bankId}/files/${path}`);
+      await request("DELETE", `/v1/banks/${bankId}/files/${encodePath(path)}`);
     },
 
     async listFiles(bankId: string, prefix?: string): Promise<FilesResponse> {
@@ -147,7 +152,7 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     },
 
     async getFile(bankId: string, path: string): Promise<string> {
-      const res = await request("GET", `/v1/banks/${bankId}/files/${path}`);
+      const res = await request("GET", `/v1/banks/${bankId}/files/${encodePath(path)}`);
       return res.text();
     },
 
