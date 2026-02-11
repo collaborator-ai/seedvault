@@ -493,9 +493,9 @@ sv collections                          # List configured collections
 
 **Daemon:**
 ```bash
-sv start                   # Start syncing (foreground)
-sv start -d                # Start syncing (background daemon)
-sv stop                    # Stop the daemon
+sv start                   # Register OS service and start syncing
+sv start -f                # Start syncing in foreground (debug)
+sv stop                    # Stop daemon and unregister service
 sv status                  # Show daemon/config/server status
 ```
 
@@ -546,7 +546,7 @@ electron/   # Desktop app — bundles the daemon
 | **Humans (CLI)** | `curl -fsSL https://seedvault.ai/install.sh \| bash` | `sv start` |
 | **Humans (desktop)** | Seedvault app (Electron) | Bundled in app |
 | **Humans (web)** | Web app | N/A (reads from service directly) |
-| **Agents** (OpenClaw, Collaborator, etc.) | Install script, non-interactive | `sv start -d` |
+| **Agents** (OpenClaw, Collaborator, etc.) | Install script, non-interactive | `sv start` |
 | **Collaborator users** | Built into Collaborator | Built into Collaborator |
 
 All paths talk to the same service API.

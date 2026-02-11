@@ -82,26 +82,28 @@ sv collections
 
 ## Daemon
 
-### Start syncing (foreground)
+### Start syncing
 ```bash
 sv start
 ```
+Registers an OS service (launchd on macOS, systemd on Linux, Task Scheduler on Windows) that auto-restarts on crash and starts on login.
 
-### Start syncing (background)
+### Start syncing in foreground (debug)
 ```bash
-sv start -d
+sv start -f
 ```
 
 ### Stop the daemon
 ```bash
 sv stop
 ```
+Stops the daemon and unregisters the OS service.
 
 ### Check status
 ```bash
 sv status
 ```
-Shows daemon state, configured collections, and server connectivity.
+Shows service state (launchd/systemd/Task Scheduler), configured collections, and server connectivity.
 
 ## File Operations (reads from server)
 
@@ -135,13 +137,13 @@ sv invite
 curl -fsSL https://seedvault.ai/install-cli.sh | bash -s -- --no-onboard
 sv init --server https://vault.example.com --name agent-notes --invite INVITE_CODE
 sv add ~/workspace/notes
-sv start -d
+sv start
 ```
 
-### 2. Add a directory and start syncing as background daemon
+### 2. Add a directory and start syncing
 ```bash
 sv add ~/new-project/docs --name project-docs
-sv start -d
+sv start
 ```
 
 ### 3. Check what files are in the vault
