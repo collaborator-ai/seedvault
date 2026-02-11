@@ -226,7 +226,8 @@
         sub.innerHTML = "";
         if (!silent) status("Loading files...");
         const { files } = await (await api("/v1/files?prefix=" + encodeURIComponent(username + "/"))).json();
-        const tree = buildTree(files.map((f) => f.path));
+        const prefix = username + "/";
+        const tree = buildTree(files.map((f) => f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path));
         renderTree(tree, sub, username, 1);
         markActiveRow();
         if (!silent) status(files.length + " file(s)");
@@ -297,7 +298,7 @@
         const res = await api("/v1/sh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cmd: "cat '" + path.replace(/'/g, "'\\''") + "'" }),
+          body: JSON.stringify({ cmd: "cat '" + username + "/" + path.replace(/'/g, "'\\''") + "'" }),
         });
         contentEl.textContent = await res.text();
         status(path);
@@ -337,14 +338,13 @@
 
         evtSource.addEventListener("file_updated", (e) => {
           const { contributor, path } = JSON.parse(e.data);
-          const fullPath = contributor + "/" + path;
           scheduleContributorReload(contributor);
           // If this file is currently open, reload its content
-          if (localStorage.getItem("sv-file") === fullPath && localStorage.getItem("sv-contributor") === contributor) {
+          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
             api("/v1/sh", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ cmd: "cat '" + fullPath.replace(/'/g, "'\\''") + "'" }),
+              body: JSON.stringify({ cmd: "cat '" + contributor + "/" + path.replace(/'/g, "'\\''") + "'" }),
             })
               .then((res) => res.text())
               .then((text) => { contentEl.textContent = text; });
@@ -353,12 +353,11 @@
 
         evtSource.addEventListener("file_deleted", (e) => {
           const { contributor, path } = JSON.parse(e.data);
-          const fullPath = contributor + "/" + path;
           scheduleContributorReload(contributor);
           // If this file was being viewed, clear the content
-          if (localStorage.getItem("sv-file") === fullPath && localStorage.getItem("sv-contributor") === contributor) {
+          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
             contentEl.textContent = "";
-            status("File deleted: " + fullPath);
+            status("File deleted: " + path);
           }
         });
 
