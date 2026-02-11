@@ -11,6 +11,7 @@ import { stop } from "./commands/stop.js";
 import { status } from "./commands/status.js";
 import { ls } from "./commands/ls.js";
 import { cat } from "./commands/cat.js";
+import { grep } from "./commands/grep.js";
 import { contributors } from "./commands/contributors.js";
 import { invite } from "./commands/invite.js";
 
@@ -20,9 +21,10 @@ Seedvault CLI
 Usage: sv <command> [options]
 
 Setup:
-  init                          Interactive first-time setup
-  init --server URL --token T --username U  Non-interactive (existing token)
-  init --server URL --name N               Non-interactive (signup)
+  init                                       Interactive first-time setup
+  init --server URL --token T                Non-interactive (existing token)
+  init --server URL --name N [--invite CODE] Non-interactive (signup)
+  init --force                               Overwrite existing config
 
 Collections:
   add <path> [--name N]         Add a collection path
@@ -38,6 +40,7 @@ Daemon:
 Files:
   ls [prefix]                   List files in your contributor
   cat <path>                    Read a file from the server
+  grep [options] <pattern> [path...]  Search file contents
 
 Vault:
   contributors                  List all contributors
@@ -79,6 +82,8 @@ async function main(): Promise<void> {
         return await ls(args);
       case "cat":
         return await cat(args);
+      case "grep":
+        return await grep(args);
       case "contributors":
         return await contributors();
       case "invite":

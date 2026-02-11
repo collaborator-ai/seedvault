@@ -50,6 +50,7 @@ Vault (= the server instance)
 - Exposes the storage root as a read-only shell passthrough (`POST /v1/sh`)
 - Pushes change events to connected consumers via SSE
 - Auth and contributor metadata in SQLite; file content on the filesystem
+- Bundles a lightweight web UI at `/` for browsing files and viewing content (requires a token)
 
 **3. QMD (search/retrieval)**
 - [QMD](https://github.com/tobi/qmd) runs alongside the server, indexing the file tree
@@ -81,7 +82,7 @@ Vault (= the server instance)
 
 ## Auth Model
 
-Single token type (`sv_...`), always scoped to a contributor. Every token can write to its own contributor and read all contributors. Tokens are bearer tokens passed via `Authorization: Bearer <token>` header.
+Single token type (`sv_...`), always scoped to a contributor. Every token can write to its own contributor and read all contributors. Tokens are bearer tokens passed via `Authorization: Bearer <token>` header. For SSE connections (where `EventSource` doesn't support custom headers), tokens can also be passed as a `?token=` query parameter.
 
 ### Permissions
 
@@ -108,9 +109,12 @@ Every token has a `contributor` (username) — there are no unscoped tokens.
 POST .../signup                → no auth (requires invite code, except first user)
 GET  .../me                    → any valid token (returns token's username)
 POST .../invites               → operator only
+GET  .../contributors          → any valid token
 PUT  .../files/*               → token's username must match path prefix
 DELETE .../files/*             → token's username must match path prefix
+GET  .../files?prefix=         → any valid token
 POST .../sh                    → any valid token (read-only shell commands)
+GET  .../search?q=             → any valid token
 GET  .../events                → any valid token
 GET  /health                   → no auth
 ```
@@ -194,6 +198,21 @@ Health check. No auth required.
 
 ---
 
+#### `GET /v1/contributors`
+List all contributors. Requires any valid token.
+
+**Response: `200 OK`**
+```json
+{
+  "contributors": [
+    { "username": "yiliu", "createdAt": "2026-02-10T22:00:00Z" },
+    { "username": "collin", "createdAt": "2026-02-10T23:00:00Z" }
+  ]
+}
+```
+
+---
+
 ### Write (Daemon → Server)
 
 Requires a token scoped to the target contributor. The path's first segment must match the token's username.
@@ -222,12 +241,28 @@ Delete a file from disk. Path includes contributor prefix. Removes empty parent 
 
 ---
 
+#### `GET /v1/files?prefix=`
+Structured file listing. Returns files under a contributor prefix as JSON. Used by the daemon for initial sync and collection management. Requires any valid token.
+
+**Request:** Query parameter `prefix` is required (e.g., `yiliu/` or `yiliu/notes/`).
+
+**Response: `200 OK`**
+```json
+{
+  "files": [
+    { "path": "yiliu/notes/seedvault.md", "size": 2048, "modifiedAt": "2026-02-10T22:05:00Z" }
+  ]
+}
+```
+
+---
+
 ### Read (Shell Passthrough)
 
-A single endpoint replaces all read operations. Requires any valid token.
+The primary read API. Requires any valid token.
 
 #### `POST /v1/sh`
-Execute a read-only shell command in the vault's `data/files/` directory. The command runs inside the storage root, where contributors are top-level directories. Returns the command's stdout as plain text.
+Execute a read-only shell command in the vault's `data/files/` directory. The command runs inside the storage root, where contributors are top-level directories.
 
 **Request body:**
 ```json
@@ -239,7 +274,15 @@ Execute a read-only shell command in the vault's `data/files/` directory. The co
 **Response: `200 OK`**
 **Body:** Command stdout as plain text.
 
-**Allowed commands:** Only a whitelist of read-only commands is permitted (e.g., `ls`, `cat`, `head`, `tail`, `find`, `grep`, `wc`, `tree`, `stat`). Any command not on the whitelist is rejected.
+**Response headers:**
+- `X-Exit-Code`: The command's exit code (e.g., `0` on success)
+- `X-Stderr`: URL-encoded stderr output
+
+**Limits:** Stdout is truncated to **1 MB** (with `[truncated]` appended). Commands time out after **10 seconds**.
+
+**Allowed commands:** Only a whitelist of read-only commands is permitted: `ls`, `cat`, `head`, `tail`, `find`, `grep`, `wc`, `tree`, `stat`. Any command not on the whitelist is rejected.
+
+**Note:** Commands are executed directly (not via a shell), so shell glob expansion does not occur. Globs in arguments like `*.md` are passed literally to the command. This works for commands that handle their own patterns (`find -name`, `grep`), but not for commands that expect pre-expanded paths (`wc`, `cat` with wildcards). Use `find` + `xargs` patterns or list specific files.
 
 **Examples:**
 
@@ -262,8 +305,8 @@ Execute a read-only shell command in the vault's `data/files/` directory. The co
 # Find recently modified files
 {"cmd": "find . -name '*.md' -mmin -60"}
 
-# Word count
-{"cmd": "wc -l yiliu/notes/*.md"}
+# Count lines in a specific file
+{"cmd": "wc -l yiliu/notes/seedvault.md"}
 ```
 
 **Virtual directories (future):** The interposer layer between the incoming command and execution can expose synthetic filesystem views — e.g., a `recent/` directory that lists all files across all contributors sorted by mtime, or a `search/<query>/` directory whose contents are search results. The agent doesn't need to know these are virtual.
@@ -273,11 +316,14 @@ Execute a read-only shell command in the vault's `data/files/` directory. The co
 ### SSE (Server → Consumer)
 
 #### `GET /v1/events`
-Opens a Server-Sent Events stream. Requires any valid token. Streams events for all contributors.
+Opens a Server-Sent Events stream. Requires any valid token (via `?token=` query param, since EventSource doesn't support custom headers). Streams events for all contributors.
 
 **Event types:**
 
 ```
+event: connected
+data: {}
+
 event: file_updated
 data: {"contributor":"yiliu","path":"notes/seedvault.md","size":2048,"modifiedAt":"2026-02-10T22:05:00Z"}
 
@@ -286,6 +332,25 @@ data: {"contributor":"yiliu","path":"notes/old-idea.md"}
 ```
 
 Consumer uses these events to trigger local reindexing, cache invalidation, etc.
+
+---
+
+### Search (QMD Proxy)
+
+#### `GET /v1/search?q=`
+Hybrid search powered by QMD. Requires any valid token. Only available when QMD is installed alongside the server.
+
+**Query parameters:**
+- `q` (required): Search query
+- `contributor` (optional): Restrict to a single contributor
+- `limit` (optional): Max results (default 10)
+
+**Response: `200 OK`**
+```json
+{
+  "results": [...]
+}
+```
 
 ---
 
@@ -439,7 +504,9 @@ This mirrors how [QMD](https://github.com/tobi/qmd) handles collections — each
 ### File filtering
 
 - Only syncs files matching `**/*.md`
-- Ignores `.git`, `node_modules`, and other common non-content directories
+- Ignores all dotfiles and dotdirectories (`.git`, `.DS_Store`, `.env`, etc.)
+- Ignores `node_modules`
+- Ignores temporary files matching `*.tmp.*`
 
 ---
 
@@ -472,6 +539,7 @@ sv init --server https://vault.example.com --token sv_...
 sv init                          # Interactive first-time setup (server URL, signup/invite)
 sv init --server URL --token T   # Non-interactive setup (username resolved from token)
 sv init --server URL --name me --invite CODE  # Non-interactive signup
+sv init --force                  # Overwrite existing config
 ```
 
 **Collection management:**
@@ -498,8 +566,9 @@ sv cat yiliu/notes/seedvault.md  # Read a file
 sv grep -r "search term" . # Search across all contributors
 ```
 
-**Admin:**
+**Vault:**
 ```bash
+sv contributors            # List all contributors
 sv invite                  # Generate an invite code (operator only)
 ```
 

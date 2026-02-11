@@ -124,9 +124,13 @@
 
       function status(msg) { statusEl.textContent = msg; }
 
-      async function api(url) {
+      async function api(url, opts = {}) {
         const res = await fetch(url, {
-          headers: token ? { Authorization: "Bearer " + token } : {},
+          ...opts,
+          headers: {
+            ...(token ? { Authorization: "Bearer " + token } : {}),
+            ...(opts.headers || {}),
+          },
         });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -221,7 +225,7 @@
         const silent = !!opts.silent;
         sub.innerHTML = "";
         if (!silent) status("Loading files...");
-        const { files } = await (await api("/v1/contributors/" + encodeURIComponent(username) + "/files")).json();
+        const { files } = await (await api("/v1/files?prefix=" + encodeURIComponent(username + "/"))).json();
         const tree = buildTree(files.map((f) => f.path));
         renderTree(tree, sub, username, 1);
         markActiveRow();
@@ -290,8 +294,11 @@
         localStorage.setItem("sv-contributor", username);
         localStorage.setItem("sv-file", path);
         status("Loading " + path + "...");
-        const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-        const res = await api("/v1/contributors/" + encodeURIComponent(username) + "/files/" + encodedPath);
+        const res = await api("/v1/sh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cmd: "cat '" + username + "/" + path.replace(/'/g, "'\\''") + "'" }),
+        });
         contentEl.textContent = await res.text();
         status(path);
       }
@@ -333,8 +340,11 @@
           scheduleContributorReload(contributor);
           // If this file is currently open, reload its content
           if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
-            const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-            api("/v1/contributors/" + encodeURIComponent(contributor) + "/files/" + encodedPath)
+            api("/v1/sh", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ cmd: "cat '" + contributor + "/" + path.replace(/'/g, "'\\''") + "'" }),
+            })
               .then((res) => res.text())
               .then((text) => { contentEl.textContent = text; });
           }
