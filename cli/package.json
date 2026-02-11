@@ -15,6 +15,11 @@
     "dist",
     "bin"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Collaborator-AI/seedvault-service.git",
+    "directory": "cli"
+  },
   "dependencies": {
     "chokidar": "^4"
   },
