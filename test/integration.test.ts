@@ -401,6 +401,45 @@ describe("watcher nested structures", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Shell endpoint
+// ---------------------------------------------------------------------------
+
+describe("shell endpoint", () => {
+  test("sh('ls') lists contributors", async () => {
+    const output = await client.sh("ls");
+    expect(output).toContain(username);
+  });
+
+  test("sh('cat username/path') reads a file", async () => {
+    // "test/hello.md" was uploaded in the API basics tests
+    const output = await client.sh(`cat ${username}/test/hello.md`);
+    expect(output).toBe("# Hello\n\nWorld.\n");
+  });
+
+  test("sh('find') finds files", async () => {
+    const output = await client.sh(`find ${username} -name "*.md"`);
+    expect(output).toContain("hello.md");
+  });
+
+  test("sh('grep') searches across files", async () => {
+    const output = await client.sh(`grep -r "Hello" ${username}/test/`);
+    expect(output).toContain("hello.md");
+  });
+
+  test("rejects non-whitelisted commands", async () => {
+    const err = await client.sh("rm -rf /").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(400);
+  });
+
+  test("rejects path traversal", async () => {
+    const err = await client.sh("cat ../../../etc/passwd").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // File deletes
 // ---------------------------------------------------------------------------
 

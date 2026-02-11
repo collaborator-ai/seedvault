@@ -525,7 +525,7 @@ Config lives at `~/.config/seedvault/config.json`:
 
 ### `seedvault` (monorepo)
 ```
-server/     # Server — deploys to Fly.io or self-hosted
+server/     # Server — published to npm, deploys to Fly.io, Docker, or self-hosted (macOS)
 cli/        # sv CLI + daemon — published to npm
 electron/   # Desktop app — bundles the daemon
 ```
@@ -537,6 +537,7 @@ electron/   # Desktop app — bundles the daemon
 | **Humans (CLI)** | `curl -fsSL https://seedvault.ai/install.sh \| bash` | `sv start` |
 | **Humans (desktop)** | Seedvault app (Electron) | Bundled in app |
 | **Humans (web)** | Web app | N/A (reads from service directly) |
+| **Self-hosted server** | `curl -fsSL https://seedvault.ai/install-server.sh \| bash` | launchd service |
 | **Agents** (OpenClaw, Collaborator, etc.) | Install script, non-interactive | `sv start` |
 | **Collaborator users** | Built into Collaborator | Built into Collaborator |
 
@@ -561,7 +562,7 @@ The server is configured entirely via environment variables:
 | Env var | Default | Description |
 |---------|---------|-------------|
 | `PORT` | `3000` | Server listen port |
-| `DATA_DIR` | `./data` | Root for all persistent data |
+| `DATA_DIR` | `~/.seedvault/data` | Root for all persistent data |
 
 All persistent state lives under `DATA_DIR`:
 
@@ -599,6 +600,52 @@ fly deploy
 ```
 
 The `fly.toml` mounts the volume at `/data` and sets `DATA_DIR=/data`.
+
+### Self-hosted (macOS)
+
+For running the server on a personal machine (e.g., a Mac Mini) with optional public internet access via Cloudflare Tunnel.
+
+**Install:**
+```bash
+curl -fsSL https://seedvault.ai/install-server.sh | bash
+```
+
+The installer:
+1. Installs Bun if not present
+2. Installs `@seedvault/server` globally via `bun install -g`
+3. Optionally sets up a Cloudflare Tunnel (stable token, quick tunnel, or local only)
+4. Registers a `launchd` service (`ai.seedvault.server`) that auto-starts on login and restarts on crash
+
+Data is stored at `~/.seedvault/data`, logs at `~/.seedvault/server.log`.
+
+**Options:**
+```bash
+# Non-interactive with quick tunnel (random URL, changes on restart)
+curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --tunnel=quick
+
+# Non-interactive with tunnel token (stable URL)
+curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --tunnel-token=<TOKEN>
+
+# Local only, custom port
+curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --no-tunnel --port=8080
+
+# Update server to latest version (preserves tunnel config)
+curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --update
+```
+
+**Management:**
+```bash
+launchctl list ai.seedvault.server    # Check status
+tail -f ~/.seedvault/server.log       # View logs
+curl http://localhost:3000/health     # Verify it's running
+```
+
+**Uninstall:**
+```bash
+curl -fsSL https://seedvault.ai/uninstall-server.sh | bash
+```
+
+The uninstaller stops the server and tunnel services, removes the package, and prompts before deleting data. Pass `--remove-data` to delete `~/.seedvault/` non-interactively.
 
 ### QMD integration
 

@@ -11,14 +11,16 @@ export interface SeedvaultClient {
   createInvite(): Promise<InviteResponse>;
   /** GET /v1/contributors */
   listContributors(): Promise<ContributorsResponse>;
-  /** PUT /v1/contributors/:username/files/* */
+  /** PUT /v1/files/:username/* */
   putFile(username: string, path: string, content: string): Promise<FileWriteResponse>;
-  /** DELETE /v1/contributors/:username/files/* */
+  /** DELETE /v1/files/:username/* */
   deleteFile(username: string, path: string): Promise<void>;
-  /** GET /v1/contributors/:username/files */
+  /** GET /v1/files?prefix=username/... */
   listFiles(username: string, prefix?: string): Promise<FilesResponse>;
-  /** GET /v1/contributors/:username/files/* */
+  /** Read a file via sh("cat ...") */
   getFile(username: string, path: string): Promise<string>;
+  /** POST /v1/sh — shell passthrough */
+  sh(cmd: string): Promise<string>;
   /** GET /health */
   health(): Promise<HealthResponse>;
 }
@@ -146,7 +148,7 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     },
 
     async putFile(username: string, path: string, content: string): Promise<FileWriteResponse> {
-      const res = await request("PUT", `/v1/contributors/${username}/files/${encodePath(path)}`, {
+      const res = await request("PUT", `/v1/files/${username}/${encodePath(path)}`, {
         body: content,
         contentType: "text/markdown",
       });
@@ -154,17 +156,47 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     },
 
     async deleteFile(username: string, path: string): Promise<void> {
-      await request("DELETE", `/v1/contributors/${username}/files/${encodePath(path)}`);
+      await request("DELETE", `/v1/files/${username}/${encodePath(path)}`);
     },
 
     async listFiles(username: string, prefix?: string): Promise<FilesResponse> {
-      const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
-      const res = await request("GET", `/v1/contributors/${username}/files${qs}`);
-      return res.json();
+      const fullPrefix = prefix ? `${username}/${prefix}` : `${username}/`;
+      const qs = `?prefix=${encodeURIComponent(fullPrefix)}`;
+      const res = await request("GET", `/v1/files${qs}`);
+      const data: FilesResponse = await res.json();
+      // Strip username prefix from paths so syncer sees same data as before
+      return {
+        files: data.files.map((f) => ({
+          ...f,
+          path: f.path.startsWith(`${username}/`)
+            ? f.path.slice(username.length + 1)
+            : f.path,
+        })),
+      };
     },
 
     async getFile(username: string, path: string): Promise<string> {
-      const res = await request("GET", `/v1/contributors/${username}/files/${encodePath(path)}`);
+      const fullPath = `${username}/${path}`;
+      const res = await request("POST", "/v1/sh", {
+        body: JSON.stringify({ cmd: `cat "${fullPath}"` }),
+        contentType: "application/json",
+      });
+      const exitCode = parseInt(res.headers.get("X-Exit-Code") || "0", 10);
+      if (exitCode !== 0) {
+        const stderr = decodeURIComponent(res.headers.get("X-Stderr") || "");
+        if (stderr.includes("No such file or directory")) {
+          throw new ApiError(404, "File not found");
+        }
+        throw new ApiError(500, stderr || `cat exited with code ${exitCode}`);
+      }
+      return res.text();
+    },
+
+    async sh(cmd: string): Promise<string> {
+      const res = await request("POST", "/v1/sh", {
+        body: JSON.stringify({ cmd }),
+        contentType: "application/json",
+      });
       return res.text();
     },
 

@@ -39,7 +39,9 @@ if (qmdAvailable) {
   console.log("  QMD:      not found (search disabled)");
 }
 
-export default {
+const server = Bun.serve({
   port: PORT,
   fetch: app.fetch,
-};
+});
+
+console.log(`Listening on http://localhost:${server.port}`);

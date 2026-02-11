@@ -1,10 +1,10 @@
 import { loadConfig } from "../config.js";
-import { createClient, ApiError } from "../client.js";
+import { createClient } from "../client.js";
 
 /**
- * sv cat <path>
+ * sv cat [args...]
  *
- * Read a file from the server and print its content.
+ * Read files via shell passthrough. Pass args directly to `cat`.
  */
 export async function cat(args: string[]): Promise<void> {
   if (args.length === 0) {
@@ -12,18 +12,8 @@ export async function cat(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const filePath = args[0];
   const config = loadConfig();
   const client = createClient(config.server, config.token);
-
-  try {
-    const content = await client.getFile(config.username, filePath);
-    process.stdout.write(content);
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) {
-      console.error(`File not found: ${filePath}`);
-      process.exit(1);
-    }
-    throw e;
-  }
+  const output = await client.sh(`cat ${args.join(" ")}`);
+  process.stdout.write(output);
 }

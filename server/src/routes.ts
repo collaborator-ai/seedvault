@@ -22,7 +22,6 @@ import {
 	validatePath,
 	writeFileAtomic,
 	deleteFile,
-	readFileContent,
 	listFiles,
 	ensureContributorDir,
 	FileNotFoundError,
@@ -30,19 +29,30 @@ import {
 } from "./storage.js";
 import { broadcast, addClient, removeClient } from "./sse.js";
 import * as qmd from "./qmd.js";
+import { executeCommand, ShellValidationError } from "./shell.js";
 
 const uiPath = resolve(import.meta.dirname, "index.html");
 const isDev = process.env.NODE_ENV !== "production";
 const uiHtmlCached = readFileSync(uiPath, "utf-8");
 
-/** Extract and decode the file path from a wildcard route */
-function extractFilePath(reqPath: string, username: string): string | null {
-	const raw = reqPath.replace(`/v1/contributors/${username}/files/`, "");
+/**
+ * Extract username and file path from a /v1/files/* request path.
+ * "/v1/files/yiliu/notes/seedvault.md" → { username: "yiliu", filePath: "notes/seedvault.md" }
+ */
+function extractFileInfo(reqPath: string): { username: string; filePath: string } | null {
+	const raw = reqPath.replace("/v1/files/", "");
+	let decoded: string;
 	try {
-		return decodeURIComponent(raw);
+		decoded = decodeURIComponent(raw);
 	} catch {
 		return null;
 	}
+	const slashIdx = decoded.indexOf("/");
+	if (slashIdx === -1) return null;
+	return {
+		username: decoded.slice(0, slashIdx),
+		filePath: decoded.slice(slashIdx + 1),
+	};
 }
 
 export function createApp(storageRoot: string): Hono {
@@ -171,26 +181,51 @@ export function createApp(storageRoot: string): Hono {
 		});
 	});
 
-	// --- File Write ---
+	// --- Shell passthrough ---
 
-	authed.put("/v1/contributors/:username/files/*", async (c) => {
+	authed.post("/v1/sh", async (c) => {
+		const body = await c.req.json<{ cmd?: string }>();
+		if (!body.cmd || typeof body.cmd !== "string") {
+			return c.json({ error: "cmd is required" }, 400);
+		}
+
+		try {
+			const result = await executeCommand(body.cmd, storageRoot);
+			return new Response(result.stdout, {
+				status: 200,
+				headers: {
+					"Content-Type": "text/plain; charset=utf-8",
+					"X-Exit-Code": String(result.exitCode),
+					"X-Stderr": encodeURIComponent(result.stderr),
+				},
+			});
+		} catch (e) {
+			if (e instanceof ShellValidationError) {
+				return c.json({ error: e.message }, 400);
+			}
+			throw e;
+		}
+	});
+
+	// --- File Write (new path) ---
+
+	authed.put("/v1/files/*", async (c) => {
 		const { contributor } = getAuthCtx(c);
-		const username = c.req.param("username");
+		const parsed = extractFileInfo(c.req.path);
 
-		if (contributor.username !== username) {
+		if (!parsed) {
+			return c.json({ error: "Invalid file path" }, 400);
+		}
+
+		if (contributor.username !== parsed.username) {
 			return c.json({ error: "You can only write to your own contributor" }, 403);
 		}
 
-		// Verify contributor exists
-		if (!getContributor(username)) {
+		if (!getContributor(parsed.username)) {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const filePath = extractFilePath(c.req.path, username);
-		if (filePath === null) {
-			return c.json({ error: "Invalid URL encoding in path" }, 400);
-		}
-		const pathError = validatePath(filePath);
+		const pathError = validatePath(parsed.filePath);
 		if (pathError) {
 			return c.json({ error: pathError }, 400);
 		}
@@ -198,16 +233,15 @@ export function createApp(storageRoot: string): Hono {
 		const content = await c.req.text();
 
 		try {
-			const result = await writeFileAtomic(storageRoot, username, filePath, content);
+			const result = await writeFileAtomic(storageRoot, parsed.username, parsed.filePath, content);
 
 			broadcast("file_updated", {
-				contributor: username,
+				contributor: parsed.username,
 				path: result.path,
 				size: result.size,
 				modifiedAt: result.modifiedAt,
 			});
 
-			// Trigger QMD re-index (async, doesn't block response)
 			qmd.triggerUpdate();
 
 			return c.json(result);
@@ -219,34 +253,33 @@ export function createApp(storageRoot: string): Hono {
 		}
 	});
 
-	// --- File Delete ---
+	// --- File Delete (new path) ---
 
-	authed.delete("/v1/contributors/:username/files/*", async (c) => {
+	authed.delete("/v1/files/*", async (c) => {
 		const { contributor } = getAuthCtx(c);
-		const username = c.req.param("username");
+		const parsed = extractFileInfo(c.req.path);
 
-		if (contributor.username !== username) {
+		if (!parsed) {
+			return c.json({ error: "Invalid file path" }, 400);
+		}
+
+		if (contributor.username !== parsed.username) {
 			return c.json({ error: "You can only delete from your own contributor" }, 403);
 		}
 
-		const filePath = extractFilePath(c.req.path, username);
-		if (filePath === null) {
-			return c.json({ error: "Invalid URL encoding in path" }, 400);
-		}
-		const pathError = validatePath(filePath);
+		const pathError = validatePath(parsed.filePath);
 		if (pathError) {
 			return c.json({ error: pathError }, 400);
 		}
 
 		try {
-			await deleteFile(storageRoot, username, filePath);
+			await deleteFile(storageRoot, parsed.username, parsed.filePath);
 
 			broadcast("file_deleted", {
-				contributor: username,
-				path: filePath,
+				contributor: parsed.username,
+				path: parsed.filePath,
 			});
 
-			// Trigger QMD re-index (async, doesn't block response)
 			qmd.triggerUpdate();
 
 			return c.body(null, 204);
@@ -258,49 +291,31 @@ export function createApp(storageRoot: string): Hono {
 		}
 	});
 
-	// --- File List ---
+	// --- Structured File Listing (for syncer) ---
 
-	authed.get("/v1/contributors/:username/files", async (c) => {
-		const username = c.req.param("username");
+	authed.get("/v1/files", async (c) => {
+		const prefix = c.req.query("prefix") || "";
+		if (!prefix) {
+			return c.json({ error: "prefix query parameter is required" }, 400);
+		}
+
+		// Extract username from prefix (first path segment)
+		const slashIdx = prefix.indexOf("/");
+		const username = slashIdx === -1 ? prefix : prefix.slice(0, slashIdx);
+		const subPrefix = slashIdx === -1 ? undefined : prefix.slice(slashIdx + 1) || undefined;
 
 		if (!getContributor(username)) {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const prefix = c.req.query("prefix") || undefined;
-		const files = await listFiles(storageRoot, username, prefix);
-		return c.json({ files });
-	});
-
-	// --- File Read ---
-
-	authed.get("/v1/contributors/:username/files/*", async (c) => {
-		const username = c.req.param("username");
-
-		if (!getContributor(username)) {
-			return c.json({ error: "Contributor not found" }, 404);
-		}
-
-		const filePath = extractFilePath(c.req.path, username);
-		if (filePath === null) {
-			return c.json({ error: "Invalid URL encoding in path" }, 400);
-		}
-		const pathError = validatePath(filePath);
-		if (pathError) {
-			return c.json({ error: pathError }, 400);
-		}
-
-		try {
-			const content = await readFileContent(storageRoot, username, filePath);
-			return c.text(content, 200, {
-				"Content-Type": "text/markdown",
-			});
-		} catch (e) {
-			if (e instanceof FileNotFoundError) {
-				return c.json({ error: "File not found" }, 404);
-			}
-			throw e;
-		}
+		const files = await listFiles(storageRoot, username, subPrefix);
+		// Return full paths (username-prefixed)
+		return c.json({
+			files: files.map((f) => ({
+				...f,
+				path: `${username}/${f.path}`,
+			})),
+		});
 	});
 
 	// --- SSE Events ---
