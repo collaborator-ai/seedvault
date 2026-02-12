@@ -323,6 +323,17 @@ function cleanupPidFile(): void {
   }
 }
 
+// --- Restart ---
+
+export async function restartService(): Promise<void> {
+  const status = await getServiceStatus();
+  if (!status.installed) {
+    return;
+  }
+  // Re-install triggers unload + load cycle, which restarts the daemon
+  await installService();
+}
+
 // --- Status ---
 
 export async function getServiceStatus(): Promise<ServiceStatus> {

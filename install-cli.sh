@@ -136,6 +136,15 @@ install_bun() {
 install_sv() {
   ui_stage "[2/3] Installing Seedvault CLI"
 
+  # Check if daemon is running before upgrade so we can restart it after
+  DAEMON_WAS_RUNNING=false
+  if command_exists sv; then
+    if sv status 2>/dev/null | grep -qi "running"; then
+      DAEMON_WAS_RUNNING=true
+      ui_debug "Daemon is running — will restart after install"
+    fi
+  fi
+
   ui_info "  Running: bun install -g $PACKAGE_NAME"
   bun install -g "$PACKAGE_NAME"
 
@@ -145,6 +154,13 @@ install_sv() {
     local version
     version="$(sv --version 2>/dev/null || echo "unknown")"
     ui_success "  sv installed (v$version)"
+
+    # Restart daemon if it was running before the upgrade
+    if $DAEMON_WAS_RUNNING; then
+      ui_info "  Restarting daemon..."
+      sv start 2>/dev/null || true
+      ui_success "  Daemon restarted"
+    fi
   else
     ui_warn "  sv was installed but isn't on your PATH."
     ui_warn "  Add this to your shell profile:"

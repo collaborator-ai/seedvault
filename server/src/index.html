@@ -178,15 +178,29 @@
 		}
 
 		.tree-row {
-			display: block;
+			display: flex;
+			align-items: baseline;
 			width: 100%;
 			text-align: left;
 			border: none;
 			padding: 4px 8px;
 			white-space: nowrap;
 			overflow: hidden;
-			text-overflow: ellipsis;
 			cursor: pointer;
+		}
+
+		.tree-row .name {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			flex: 1;
+			min-width: 0;
+		}
+
+		.tree-row .ctime {
+			flex-shrink: 0;
+			margin-left: 8px;
+			opacity: 0.45;
+			font-size: 10px;
 		}
 
 		.tree-row:hover {
@@ -418,6 +432,16 @@
 			return root;
 		}
 
+		function formatCtime(iso) {
+			if (!iso) return "";
+			const d = new Date(iso);
+			const mon = d.toLocaleString(undefined, { month: "short" });
+			const day = d.getDate();
+			const now = new Date();
+			if (d.getFullYear() === now.getFullYear()) return mon + " " + day;
+			return mon + " " + day + ", " + d.getFullYear();
+		}
+
 		function getNewestCtime(node) {
 			if (node.__file) return node.__file.originCtime || node.__file.serverCreatedAt || "";
 			let newest = "";
@@ -457,14 +481,15 @@
 				row.style.paddingLeft = (depth * 12 + 8) + "px";
 
 				if (isFile) {
-					row.innerHTML = '<span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + key;
+					const ctime = child.__file.originCtime || child.__file.serverCreatedAt || "";
+					row.innerHTML = '<span class="name"><span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + key + '</span><span class="ctime">' + formatCtime(ctime) + '</span>';
 					row.dataset.path = child.__file.path;
 					row.dataset.contributor = username;
 					row.onclick = () => loadContent(username, child.__file.path, row);
 				} else {
 					const sub = document.createElement("ul");
 					const fileCount = countFiles(child);
-					row.innerHTML = '<span class="arrow">&#9660;</span><i class="ph ph-folder"></i> ' + key + ' <span style="opacity:0.5">(' + fileCount + ')</span>';
+					row.innerHTML = '<span class="name"><span class="arrow">&#9660;</span><i class="ph ph-folder"></i> ' + key + ' <span style="opacity:0.5">(' + fileCount + ')</span></span>';
 					row.onclick = () => {
 						sub.classList.toggle("collapsed");
 						row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
@@ -547,7 +572,7 @@
 			const row = sub.parentElement && sub.parentElement.querySelector(".tree-row");
 			if (row) {
 				const arrow = row.querySelector(".arrow").outerHTML;
-				row.innerHTML = arrow + '<i class="ph ph-user"></i> ' + username + ' <span style="opacity:0.5">(' + files.length + ')</span>';
+				row.innerHTML = '<span class="name">' + arrow + '<i class="ph ph-user"></i> ' + username + ' <span style="opacity:0.5">(' + files.length + ')</span></span>';
 			}
 		}
 
@@ -566,7 +591,7 @@
 				sub.dataset.contributor = b.username;
 				sub.dataset.loaded = "false";
 				let loaded = false;
-				row.innerHTML = '<span class="arrow">&#9654;</span><i class="ph ph-user"></i> ' + b.username;
+				row.innerHTML = '<span class="name"><span class="arrow">&#9654;</span><i class="ph ph-user"></i> ' + b.username + '</span>';
 				row.onclick = async () => {
 					const collapsed = sub.classList.contains("collapsed") || !sub.hasChildNodes();
 					if (collapsed) {

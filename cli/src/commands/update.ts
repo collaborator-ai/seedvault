@@ -1,6 +1,7 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { $ } from "bun";
+import { restartService, getServiceStatus } from "../daemon/service.js";
 
 const INSTALL_SCRIPT_URL =
   "https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh";
@@ -8,7 +9,8 @@ const INSTALL_SCRIPT_URL =
 /**
  * sv update
  *
- * Update the CLI to the latest version by re-running the install script.
+ * Update the CLI to the latest version by re-running the install script,
+ * then restart the daemon if it was running.
  */
 export async function upgrade(): Promise<void> {
   // Get current version
@@ -20,6 +22,9 @@ export async function upgrade(): Promise<void> {
   } catch {
     // Ignore — might be running from a different location
   }
+
+  // Check if daemon is installed before upgrade
+  const preStatus = await getServiceStatus();
 
   console.log(`Current version: ${currentVersion}`);
   console.log(`Fetching latest from: ${INSTALL_SCRIPT_URL}\n`);
@@ -36,5 +41,12 @@ export async function upgrade(): Promise<void> {
   }
 
   console.log(result.stdout.toString());
+
+  // Restart daemon if it was installed
+  if (preStatus.installed) {
+    console.log("Restarting daemon...");
+    await restartService();
+  }
+
   console.log("Upgrade complete. Run 'sv --version' to verify.");
 }
