@@ -322,6 +322,7 @@ export function createApp(storageRoot: string): Hono {
 
 	authed.get("/v1/events", (c) => {
 		let ctrl: ReadableStreamDefaultController;
+		let heartbeat: ReturnType<typeof setInterval>;
 		const stream = new ReadableStream({
 			start(controller) {
 				ctrl = controller;
@@ -330,8 +331,18 @@ export function createApp(storageRoot: string): Hono {
 				// Send initial connected event
 				const msg = `event: connected\ndata: {}\n\n`;
 				controller.enqueue(new TextEncoder().encode(msg));
+
+				// Send keepalive comment every 30s to prevent proxy timeouts
+				heartbeat = setInterval(() => {
+					try {
+						controller.enqueue(new TextEncoder().encode(":keepalive\n\n"));
+					} catch {
+						clearInterval(heartbeat);
+					}
+				}, 30_000);
 			},
 			cancel() {
+				clearInterval(heartbeat);
 				removeClient(ctrl);
 			},
 		});
