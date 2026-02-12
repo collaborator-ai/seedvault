@@ -51,7 +51,49 @@ export class Syncer {
       deleted += result.deleted;
     }
 
+    // Purge server files that don't belong to any current collection
+    deleted += await this.purgeOrphans();
+
     return { uploaded, skipped, deleted };
+  }
+
+  /**
+   * Delete any server files whose collection prefix doesn't match
+   * a currently-configured collection. Handles the case where a
+   * collection was removed while the daemon wasn't running.
+   */
+  private async purgeOrphans(): Promise<number> {
+    let deleted = 0;
+
+    const { files: allServerFiles } = await this.client.listFiles(this.username);
+    const collectionNames = new Set(this.collections.map((c) => c.name));
+
+    const orphans = allServerFiles.filter((f) => {
+      const prefix = f.path.split("/")[0];
+      return !collectionNames.has(prefix);
+    });
+
+    if (orphans.length === 0) return 0;
+
+    this.log(`Purging ${orphans.length} orphaned file(s) from removed collections...`);
+
+    await pooled(orphans, SYNC_CONCURRENCY, async (f) => {
+      try {
+        await this.client.deleteFile(this.username, f.path);
+        deleted++;
+      } catch {
+        this.queue.enqueue({
+          type: "delete",
+          username: this.username,
+          serverPath: f.path,
+          content: null,
+          queuedAt: new Date().toISOString(),
+        });
+      }
+    });
+
+    this.log(`  Purged ${deleted} orphaned file(s)`);
+    return deleted;
   }
 
   /**
