@@ -19,12 +19,29 @@ export function createWatcher(
   // Build the paths to watch
   const paths = collections.map((f) => f.path);
 
+  // Custom ignore function: only ignore dotfiles WITHIN collections,
+  // not dotdirs in the absolute path leading to the collection.
+  const shouldIgnore = (filePath: string): boolean => {
+    // Find which collection this path belongs to
+    for (const col of collections) {
+      if (filePath.startsWith(col.path + "/") || filePath === col.path) {
+        // Get the relative path within the collection
+        const relPath = filePath.slice(col.path.length + 1);
+        // Check if any segment in the relative path starts with "."
+        const segments = relPath.split("/");
+        for (const seg of segments) {
+          if (seg.startsWith(".")) return true;
+          if (seg === "node_modules") return true;
+          if (seg.includes(".tmp.")) return true;
+        }
+        return false;
+      }
+    }
+    return false;
+  };
+
   const watcher = watch(paths, {
-    ignored: [
-      /(^|[/\\])\./,          // dotfiles / dotdirs (.git, .DS_Store, etc.)
-      "**/node_modules/**",
-      "**/*.tmp.*",
-    ],
+    ignored: shouldIgnore,
     persistent: true,
     ignoreInitial: true,       // we handle initial sync separately
     awaitWriteFinish: {
