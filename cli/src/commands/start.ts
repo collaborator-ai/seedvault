@@ -88,16 +88,15 @@ async function startForeground(): Promise<void> {
     onLog: log,
   });
 
-  if (config.collections.length > 0) {
-    // Initial sync
-    log("Running initial sync...");
-    try {
-      const { uploaded, skipped, deleted } = await syncer.initialSync();
-      log(`Initial sync complete: ${uploaded} uploaded, ${skipped} skipped, ${deleted} deleted`);
-    } catch (e: unknown) {
-      log(`Initial sync failed: ${(e as Error).message}`);
-      log("Will continue watching for changes...");
-    }
+  // Initial sync (always run — even with no collections, purgeOrphans
+  // needs to clean up files from previously-removed collections)
+  log("Running initial sync...");
+  try {
+    const { uploaded, skipped, deleted } = await syncer.initialSync();
+    log(`Initial sync complete: ${uploaded} uploaded, ${skipped} skipped, ${deleted} deleted`);
+  } catch (e: unknown) {
+    log(`Initial sync failed: ${(e as Error).message}`);
+    log("Will continue watching for changes...");
   }
 
   let watcher: FSWatcher | null = null;

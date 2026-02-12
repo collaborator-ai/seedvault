@@ -14,7 +14,7 @@ import { cat } from "./commands/cat.js";
 import { sh } from "./commands/sh.js";
 import { contributors } from "./commands/contributors.js";
 import { invite } from "./commands/invite.js";
-import { upgrade } from "./commands/upgrade.js";
+import { upgrade } from "./commands/update.js";
 
 const USAGE = `
 Seedvault CLI
@@ -48,7 +48,7 @@ Vault:
   invite                        Generate an invite code (operator only)
 
 Maintenance:
-  upgrade                       Upgrade CLI to latest version
+  update                        Update CLI to latest version
 `.trim();
 
 async function main(): Promise<void> {
@@ -94,7 +94,7 @@ async function main(): Promise<void> {
         return await contributors();
       case "invite":
         return await invite();
-      case "upgrade":
+      case "update":
         return await upgrade();
       default:
         console.error(`Unknown command: ${cmd}\n`);

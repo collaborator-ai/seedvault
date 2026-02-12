@@ -6,9 +6,9 @@ const INSTALL_SCRIPT_URL =
   "https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh";
 
 /**
- * sv upgrade
+ * sv update
  *
- * Upgrade the CLI to the latest version by re-running the install script.
+ * Update the CLI to the latest version by re-running the install script.
  */
 export async function upgrade(): Promise<void> {
   // Get current version
