@@ -26,8 +26,13 @@
 			html {
 				background: rgb(18, 18, 18);
 			}
+
 			#nav {
 				color: rgb(204, 204, 204);
+			}
+
+			#content {
+				color: rgb(230, 230, 230);
 			}
 		}
 
@@ -129,6 +134,10 @@
 			flex-shrink: 0;
 		}
 
+		#nav-body:focus {
+			outline: none;
+		}
+
 		.panel-body {
 			flex: 1;
 			overflow: auto;
@@ -173,7 +182,7 @@
 			width: 100%;
 			text-align: left;
 			border: none;
-			padding: 6px 8px;
+			padding: 4px 8px;
 			white-space: nowrap;
 			overflow: hidden;
 			text-overflow: ellipsis;
@@ -198,7 +207,8 @@
 		.tree-row .ph {
 			display: inline-block;
 			font-size: 14px;
-			margin-right: 6px;
+			margin-left: 12px;
+			margin-right: 2px;
 			vertical-align: -0.15em;
 		}
 
@@ -207,27 +217,112 @@
 		}
 
 		#content {
-			padding: 12px 16px;
+			font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			font-size: 16px;
+			padding: 24px 32px;
 			overflow: auto;
 			line-height: 1.6;
 		}
 
-		#content h1 { font-size: 1.75em; font-weight: 700; margin: 0 0 0.5em; line-height: 1.3; }
-		#content h2 { font-size: 1.4em; font-weight: 600; margin: 1em 0 0.5em; line-height: 1.3; }
-		#content h3 { font-size: 1.2em; font-weight: 600; margin: 1em 0 0.5em; line-height: 1.3; }
-		#content h4, #content h5, #content h6 { font-size: 1.05em; font-weight: 600; margin: 0.75em 0 0.5em; }
-		#content p { margin: 0 0 0.75em; }
-		#content img { max-width: 100%; height: auto; display: block; }
-		#content ul, #content ol { margin: 0 0 0.75em; padding-left: 1.5em; }
-		#content pre, #content code { font-family: ui-monospace, monospace; font-size: 0.9em; }
-		#content pre { background: color-mix(in srgb, currentColor 8%, transparent); padding: 10px; border-radius: 4px; overflow-x: auto; margin: 0.5em 0; }
-		#content code { padding: 0.15em 0.3em; border-radius: 3px; background: color-mix(in srgb, currentColor 8%, transparent); }
-		#content pre code { padding: 0; background: none; }
-		#content blockquote { border-left: 4px solid color-mix(in srgb, currentColor 30%, transparent); margin: 0.5em 0; padding-left: 1em; color: color-mix(in srgb, currentColor 80%, transparent); }
-		#content a { color: inherit; text-decoration: underline; }
-		#content hr { border: none; border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent); margin: 1.5em 0; }
-		#content table { border-collapse: collapse; margin: 0.5em 0; }
-		#content th, #content td { border: 1px solid color-mix(in srgb, currentColor 20%, transparent); padding: 6px 10px; text-align: left; }
+		#content h1 {
+			font-size: 1.75em;
+			font-weight: 700;
+			margin: 0 0 0.5em;
+			line-height: 1.3;
+		}
+
+		#content h2 {
+			font-size: 1.4em;
+			font-weight: 600;
+			margin: 1em 0 0.5em;
+			line-height: 1.3;
+		}
+
+		#content h3 {
+			font-size: 1.2em;
+			font-weight: 600;
+			margin: 1em 0 0.5em;
+			line-height: 1.3;
+		}
+
+		#content h4,
+		#content h5,
+		#content h6 {
+			font-size: 1.05em;
+			font-weight: 600;
+			margin: 0.75em 0 0.5em;
+		}
+
+		#content p {
+			margin: 0 0 0.75em;
+		}
+
+		#content img {
+			max-width: 100%;
+			height: auto;
+			display: block;
+		}
+
+		#content ul,
+		#content ol {
+			margin: 0 0 0.75em;
+			padding-left: 1.5em;
+		}
+
+		#content pre,
+		#content code {
+			font-family: ui-monospace, monospace;
+			font-size: 0.9em;
+		}
+
+		#content pre {
+			background: color-mix(in srgb, currentColor 8%, transparent);
+			padding: 10px;
+			border-radius: 4px;
+			overflow-x: auto;
+			margin: 0.5em 0;
+		}
+
+		#content code {
+			padding: 0.15em 0.3em;
+			border-radius: 3px;
+			background: color-mix(in srgb, currentColor 8%, transparent);
+		}
+
+		#content pre code {
+			padding: 0;
+			background: none;
+		}
+
+		#content blockquote {
+			border-left: 4px solid color-mix(in srgb, currentColor 30%, transparent);
+			margin: 0.5em 0;
+			padding-left: 1em;
+			color: color-mix(in srgb, currentColor 80%, transparent);
+		}
+
+		#content a {
+			color: inherit;
+			text-decoration: underline;
+		}
+
+		#content hr {
+			border: none;
+			border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+			margin: 1.5em 0;
+		}
+
+		#content table {
+			border-collapse: collapse;
+			margin: 0.5em 0;
+		}
+
+		#content th,
+		#content td {
+			border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+			padding: 6px 10px;
+			text-align: left;
+		}
 
 		#status {
 			margin-top: 8px;
@@ -246,7 +341,7 @@
 	<div class="grid">
 		<section id="nav" class="panel" style="width:220px">
 			<div class="panel-head">Files</div>
-			<div class="panel-body">
+			<div class="panel-body" id="nav-body" tabindex="0">
 				<ul id="files" class="tree"></ul>
 			</div>
 		</section>
@@ -379,7 +474,40 @@
 			const active = filesEl.querySelector(
 				'.tree-row[data-contributor="' + CSS.escape(activeContributor) + '"][data-path="' + CSS.escape(activePath) + '"]'
 			);
-			if (active) active.classList.add("active");
+			if (active) {
+				active.classList.add("active");
+				active.scrollIntoView({ block: "nearest", behavior: "smooth" });
+			}
+		}
+
+		function getVisibleTreeRows() {
+			const rows = [];
+			function walk(ul) {
+				if (!ul || ul.classList.contains("collapsed")) return;
+				for (const li of ul.children) {
+					const row = li.querySelector(":scope > .tree-row");
+					if (row && row.dataset.path) rows.push(row);
+					walk(li.querySelector(":scope > ul"));
+				}
+			}
+			walk(filesEl);
+			return rows;
+		}
+
+		function handleNavKeydown(e) {
+			if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+			if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+			const rows = getVisibleTreeRows();
+			if (rows.length === 0) return;
+			const active = filesEl.querySelector(".tree-row.active");
+			let idx = active ? rows.indexOf(active) : -1;
+			if (e.key === "ArrowDown") {
+				idx = idx < rows.length - 1 ? idx + 1 : idx;
+			} else {
+				idx = idx > 0 ? idx - 1 : 0;
+			}
+			e.preventDefault();
+			rows[idx].click();
 		}
 
 		function getLoadedContributorList(username) {
@@ -459,6 +587,7 @@
 		async function loadContent(username, path, row) {
 			filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
 			row.classList.add("active");
+			row.scrollIntoView({ block: "nearest", behavior: "smooth" });
 			localStorage.setItem("sv-contributor", username);
 			localStorage.setItem("sv-file", path);
 			status("Loading " + path + "...");
@@ -469,6 +598,7 @@
 			});
 			const text = await res.text();
 			contentEl.innerHTML = renderMarkdown(text);
+			contentEl.parentElement.scrollTop = 0;
 			status(path);
 		}
 
@@ -535,6 +665,19 @@
 		}
 
 		if (token) loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
+
+		// Nav keyboard: up/down to move selection
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+			if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName)) return;
+			if (!$("nav-body").contains(document.activeElement) && document.activeElement !== $("nav-body")) return;
+			handleNavKeydown(e);
+		});
+
+		// Focus nav when clicking in it
+		$("nav").addEventListener("mousedown", (e) => {
+			if (e.target.closest("#nav-body")) $("nav-body").focus();
+		});
 
 		// Divider drag
 		const divider = $("divider");
