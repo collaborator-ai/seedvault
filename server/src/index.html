@@ -1,400 +1,563 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Seedvault</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
-    <style>
-      * { box-sizing: border-box; margin: 0; }
-      html {
-        color-scheme: light dark;
-        font-family: "IBM Plex Mono", ui-monospace, monospace;
-        font-size: 13px;
-      }
-      @media (prefers-color-scheme: dark) {
-        html { background: rgb(18, 18, 18); }
-      }
-      html, body { height: 100%; }
-      body {
-        padding: 12px;
-        display: flex;
-        flex-direction: column;
-      }
-      .top { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; flex-shrink: 0; }
-      input, select, button {
-        font: inherit;
-        padding: 4px 8px;
-        background: transparent;
-        color: inherit;
-        border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
-      }
-      #token { min-width: 260px; flex: 1; }
-      button { cursor: pointer; }
-      .grid {
-        display: flex;
-        gap: 0;
-        flex: 1;
-        min-height: 0;
-      }
-      .grid > .panel:first-child { flex-shrink: 0; }
-      .grid > .panel:last-child { flex: 1; min-width: 0; }
-      .divider {
-        width: 5px;
-        cursor: col-resize;
-        background: transparent;
-        flex-shrink: 0;
-      }
-      .divider:hover, .divider.dragging {
-        background: color-mix(in srgb, currentColor 20%, transparent);
-      }
-      @media (max-width: 600px) {
-        .grid { flex-direction: column; }
-        .grid > .panel:first-child { width: auto; }
-        .divider { display: none; }
-      }
-      .panel {
-        border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-        overflow: hidden;
-      }
-      .panel-head {
-        padding: 4px 8px;
-        border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-        font-weight: bold;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        flex-shrink: 0;
-      }
-      .panel-body {
-        flex: 1;
-        overflow: auto;
-      }
-      .tree { list-style: none; padding: 0; }
-      .tree ul { list-style: none; padding: 0; }
-      .tree-row {
-        display: block;
-        width: 100%;
-        text-align: left;
-        border: none;
-        padding: 3px 8px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        cursor: pointer;
-      }
-      .tree-row:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
-      .tree-row.active { font-weight: bold; }
-      .tree-row .arrow { display: inline-block; width: 1em; text-align: center; }
-      .tree ul.collapsed { display: none; }
-      #content {
-        padding: 8px;
-        white-space: pre-wrap;
-        overflow: auto;
-        line-height: 1.4;
-      }
-      #status { margin-top: 8px; font-size: 11px; opacity: 0.6; flex-shrink: 0; }
-    </style>
-  </head>
-  <body>
-    <div class="top">
-      <input id="token" type="password" placeholder="API key (&quot;sv_...&quot;)" />
-      <button id="connect">Load</button>
-    </div>
-    <div class="grid">
-      <section id="nav" class="panel" style="width:220px">
-        <div class="panel-head">Files</div>
-        <div class="panel-body"><ul id="files" class="tree"></ul></div>
-      </section>
-      <div id="divider" class="divider"></div>
-      <section class="panel">
-        <div class="panel-head">Content</div>
-        <div class="panel-body"><pre id="content"></pre></div>
-      </section>
-    </div>
-    <div id="status"></div>
-    <script>
-      const $ = (id) => document.getElementById(id);
-      const tokenEl = $("token");
-      const filesEl = $("files");
-      const contentEl = $("content");
-      const statusEl = $("status");
 
-      let token = localStorage.getItem("sv-token") || "";
-      tokenEl.value = token;
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>Seedvault</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap"
+		rel="stylesheet" />
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@phosphor-icons/web@2.1.2/src/regular/style.css" />
+	<style>
+		* {
+			box-sizing: border-box;
+			margin: 0;
+		}
 
-      function status(msg) { statusEl.textContent = msg; }
+		html {
+			color-scheme: light dark;
+			font-family: ui-monospace, monospace;
+			font-size: 12px;
+		}
 
-      async function api(url, opts = {}) {
-        const res = await fetch(url, {
-          ...opts,
-          headers: {
-            ...(token ? { Authorization: "Bearer " + token } : {}),
-            ...(opts.headers || {}),
-          },
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error((body.error || "Request failed") + " (" + res.status + ")");
-        }
-        return res;
-      }
+		@media (prefers-color-scheme: dark) {
+			html {
+				background: rgb(18, 18, 18);
+			}
+			#nav {
+				color: rgb(204, 204, 204);
+			}
+		}
 
-      const savedContributor = localStorage.getItem("sv-contributor") || "";
-      const savedFile = localStorage.getItem("sv-file") || "";
+		html,
+		body {
+			height: 100%;
+		}
 
-      function buildTree(paths) {
-        const root = {};
-        for (const p of paths) {
-          const parts = p.split("/");
-          let node = root;
-          for (const part of parts) {
-            if (!node[part]) node[part] = {};
-            node = node[part];
-          }
-          node.__file = p;
-        }
-        return root;
-      }
+		body {
+			padding: 12px;
+			display: flex;
+			flex-direction: column;
+		}
 
-      function countFiles(node) {
-        let count = 0;
-        for (const key of Object.keys(node)) {
-          if (key === "__file") { count++; continue; }
-          count += countFiles(node[key]);
-        }
-        return count;
-      }
+		.top {
+			display: flex;
+			gap: 8px;
+			margin-bottom: 12px;
+			flex-wrap: wrap;
+			flex-shrink: 0;
+		}
 
-      function renderTree(node, parentUl, username, depth) {
-        const keys = Object.keys(node).filter((k) => k !== "__file").sort((a, b) => {
-          const aDir = Object.keys(node[a]).some((k) => k !== "__file");
-          const bDir = Object.keys(node[b]).some((k) => k !== "__file");
-          if (aDir !== bDir) return aDir ? -1 : 1;
-          return a.localeCompare(b);
-        });
-        for (const key of keys) {
-          const child = node[key];
-          const isFile = child.__file && Object.keys(child).length === 1;
-          const li = document.createElement("li");
-          const row = document.createElement("div");
-          row.className = "tree-row";
-          row.style.paddingLeft = (depth * 12 + 8) + "px";
+		input,
+		select,
+		button {
+			font: inherit;
+			padding: 4px 8px;
+			background: transparent;
+			color: inherit;
+			border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+		}
 
-          if (isFile) {
-            row.innerHTML = '<span class="arrow">&nbsp;</span>&#x1F4DD; ' + key;
-            row.dataset.path = child.__file;
-            row.dataset.contributor = username;
-            row.onclick = () => loadContent(username, child.__file, row);
-          } else {
-            const sub = document.createElement("ul");
-            const fileCount = countFiles(child);
-            row.innerHTML = '<span class="arrow">&#9660;</span>&#x1F4C1; ' + key + ' <span style="opacity:0.5">(' + fileCount + ')</span>';
-            row.onclick = () => {
-              sub.classList.toggle("collapsed");
-              row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
-            };
-            renderTree(child, sub, username, depth + 1);
-            li.appendChild(row);
-            li.appendChild(sub);
-            parentUl.appendChild(li);
-            continue;
-          }
-          li.appendChild(row);
-          parentUl.appendChild(li);
-        }
-      }
+		#token {
+			min-width: 260px;
+			flex: 1;
+		}
 
-      function markActiveRow() {
-        filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
-        const activePath = localStorage.getItem("sv-file");
-        const activeContributor = localStorage.getItem("sv-contributor");
-        if (!activePath || !activeContributor) return;
-        const active = filesEl.querySelector(
-          '.tree-row[data-contributor="' + CSS.escape(activeContributor) + '"][data-path="' + CSS.escape(activePath) + '"]'
-        );
-        if (active) active.classList.add("active");
-      }
+		button {
+			cursor: pointer;
+		}
 
-      function getLoadedContributorList(username) {
-        return filesEl.querySelector(
-          'ul[data-contributor="' + CSS.escape(username) + '"][data-loaded="true"]'
-        );
-      }
+		.grid {
+			display: flex;
+			gap: 0;
+			flex: 1;
+			min-height: 0;
+		}
 
-      async function loadContributorFiles(username, sub, opts = {}) {
-        const silent = !!opts.silent;
-        sub.innerHTML = "";
-        if (!silent) status("Loading files...");
-        const { files } = await (await api("/v1/files?prefix=" + encodeURIComponent(username + "/"))).json();
-        const prefix = username + "/";
-        const tree = buildTree(files.map((f) => f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path));
-        renderTree(tree, sub, username, 1);
-        markActiveRow();
-        if (!silent) status(files.length + " file(s)");
-        // Update contributor row with file count
-        const row = sub.parentElement && sub.parentElement.querySelector(".tree-row");
-        if (row) {
-          const arrow = row.querySelector(".arrow").outerHTML;
-          row.innerHTML = arrow + '&#x1F464; ' + username + ' <span style="opacity:0.5">(' + files.length + ')</span>';
-        }
-      }
+		.grid>.panel:first-child {
+			flex-shrink: 0;
+		}
 
-      async function loadContributors() {
-        filesEl.innerHTML = "";
-        contentEl.textContent = "";
-        status("Loading contributors...");
-        const { contributors } = await (await api("/v1/contributors")).json();
+		.grid>.panel:last-child {
+			flex: 1;
+			min-width: 0;
+		}
 
-        for (const b of contributors) {
-          const li = document.createElement("li");
-          const row = document.createElement("div");
-          row.className = "tree-row";
-          row.style.paddingLeft = "8px";
-          const sub = document.createElement("ul");
-          sub.dataset.contributor = b.username;
-          sub.dataset.loaded = "false";
-          let loaded = false;
-          row.innerHTML = '<span class="arrow">&#9654;</span>&#x1F464; ' + b.username;
-          row.onclick = async () => {
-            const collapsed = sub.classList.contains("collapsed") || !sub.hasChildNodes();
-            if (collapsed) {
-              sub.classList.remove("collapsed");
-              row.querySelector(".arrow").innerHTML = "&#9660;";
-              if (!loaded) {
-                loaded = true;
-                sub.dataset.loaded = "true";
-                await loadContributorFiles(b.username, sub);
-              }
-            } else {
-              sub.classList.add("collapsed");
-              row.querySelector(".arrow").innerHTML = "&#9654;";
-            }
-          };
-          li.appendChild(row);
-          li.appendChild(sub);
-          filesEl.appendChild(li);
+		.divider {
+			width: 5px;
+			cursor: col-resize;
+			background: transparent;
+			flex-shrink: 0;
+		}
 
-          if (b.username === savedContributor) {
-            sub.classList.remove("collapsed");
-            row.querySelector(".arrow").innerHTML = "&#9660;";
-            loaded = true;
-            sub.dataset.loaded = "true";
-            await loadContributorFiles(b.username, sub);
-            if (savedFile) {
-              const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
-              if (match) await loadContent(b.username, savedFile, match);
-            }
-          }
-        }
-        status(contributors.length + " contributor(s)");
-      }
+		.divider:hover,
+		.divider.dragging {
+			background: color-mix(in srgb, currentColor 20%, transparent);
+		}
 
-      async function loadContent(username, path, row) {
-        filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
-        row.classList.add("active");
-        localStorage.setItem("sv-contributor", username);
-        localStorage.setItem("sv-file", path);
-        status("Loading " + path + "...");
-        const res = await api("/v1/sh", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cmd: 'cat "' + username + "/" + path + '"' }),
-        });
-        contentEl.textContent = await res.text();
-        status(path);
-      }
+		@media (max-width: 600px) {
+			.grid {
+				flex-direction: column;
+			}
 
-      $("connect").onclick = () => {
-        token = tokenEl.value.trim();
-        localStorage.setItem("sv-token", token);
-        loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
-      };
+			.grid>.panel:first-child {
+				width: auto;
+			}
 
-      // --- SSE real-time updates ---
-      let evtSource = null;
-      const contributorReloadTimers = new Map();
+			.divider {
+				display: none;
+			}
+		}
 
-      function scheduleContributorReload(username) {
-        if (!getLoadedContributorList(username)) return;
+		.panel {
+			border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+			display: flex;
+			flex-direction: column;
+			min-height: 0;
+			overflow: hidden;
+		}
 
-        const existing = contributorReloadTimers.get(username);
-        if (existing) clearTimeout(existing);
+		.panel-head {
+			padding: 4px 8px;
+			border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+			font-weight: bold;
+			font-size: 11px;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+			flex-shrink: 0;
+		}
 
-        const timer = setTimeout(() => {
-          contributorReloadTimers.delete(username);
-          const targetUl = getLoadedContributorList(username);
-          if (!targetUl) return;
-          loadContributorFiles(username, targetUl, { silent: true }).catch((e) => status(e.message));
-        }, 100);
+		.panel-body {
+			flex: 1;
+			overflow: auto;
+			scrollbar-width: thin;
+			scrollbar-color: color-mix(in srgb, currentColor 20%, transparent) transparent;
+		}
 
-        contributorReloadTimers.set(username, timer);
-      }
+		.panel-body::-webkit-scrollbar,
+		#content::-webkit-scrollbar {
+			width: 6px;
+			height: 6px;
+		}
 
-      function connectSSE() {
-        if (evtSource) evtSource.close();
-        if (!token) return;
+		.panel-body::-webkit-scrollbar-track,
+		#content::-webkit-scrollbar-track {
+			background: transparent;
+		}
 
-        evtSource = new EventSource("/v1/events?token=" + encodeURIComponent(token));
+		.panel-body::-webkit-scrollbar-thumb,
+		#content::-webkit-scrollbar-thumb {
+			background: color-mix(in srgb, currentColor 20%, transparent);
+			border-radius: 3px;
+		}
 
-        evtSource.addEventListener("file_updated", (e) => {
-          const { contributor, path } = JSON.parse(e.data);
-          scheduleContributorReload(contributor);
-          // If this file is currently open, reload its content
-          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
-            api("/v1/sh", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ cmd: 'cat "' + contributor + "/" + path + '"' }),
-            })
-              .then((res) => res.text())
-              .then((text) => { contentEl.textContent = text; });
-          }
-        });
+		.panel-body::-webkit-scrollbar-thumb:hover,
+		#content::-webkit-scrollbar-thumb:hover {
+			background: color-mix(in srgb, currentColor 30%, transparent);
+		}
 
-        evtSource.addEventListener("file_deleted", (e) => {
-          const { contributor, path } = JSON.parse(e.data);
-          scheduleContributorReload(contributor);
-          // If this file was being viewed, clear the content
-          if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
-            contentEl.textContent = "";
-            status("File deleted: " + path);
-          }
-        });
+		.tree {
+			list-style: none;
+			padding: 0;
+		}
 
-        evtSource.onerror = () => {
-          // EventSource auto-reconnects
-        };
-      }
+		.tree ul {
+			list-style: none;
+			padding: 0;
+		}
 
-      if (token) loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
+		.tree-row {
+			display: block;
+			width: 100%;
+			text-align: left;
+			border: none;
+			padding: 6px 8px;
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			cursor: pointer;
+		}
 
-      // Divider drag
-      const divider = $("divider");
-      const nav = $("nav");
-      const savedNav = localStorage.getItem("sv-nav-w");
-      if (savedNav) nav.style.width = savedNav + "px";
-      divider.addEventListener("mousedown", (e) => {
-        e.preventDefault();
-        divider.classList.add("dragging");
-        const onMove = (e) => {
-          const w = e.clientX - nav.getBoundingClientRect().left;
-          if (w > 80 && w < window.innerWidth - 120) nav.style.width = w + "px";
-        };
-        const onUp = () => {
-          divider.classList.remove("dragging");
-          localStorage.setItem("sv-nav-w", nav.offsetWidth);
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-        };
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-      });
-    </script>
-  </body>
+		.tree-row:hover {
+			background: color-mix(in srgb, currentColor 8%, transparent);
+		}
+
+		.tree-row.active {
+			background: CanvasText;
+			color: Canvas;
+		}
+
+		.tree-row .arrow {
+			display: inline-block;
+			width: 1em;
+			text-align: center;
+		}
+
+		.tree-row .ph {
+			display: inline-block;
+			font-size: 14px;
+			margin-right: 6px;
+			vertical-align: -0.15em;
+		}
+
+		.tree ul.collapsed {
+			display: none;
+		}
+
+		#content {
+			padding: 12px 16px;
+			overflow: auto;
+			line-height: 1.6;
+		}
+
+		#content h1 { font-size: 1.75em; font-weight: 700; margin: 0 0 0.5em; line-height: 1.3; }
+		#content h2 { font-size: 1.4em; font-weight: 600; margin: 1em 0 0.5em; line-height: 1.3; }
+		#content h3 { font-size: 1.2em; font-weight: 600; margin: 1em 0 0.5em; line-height: 1.3; }
+		#content h4, #content h5, #content h6 { font-size: 1.05em; font-weight: 600; margin: 0.75em 0 0.5em; }
+		#content p { margin: 0 0 0.75em; }
+		#content img { max-width: 100%; height: auto; display: block; }
+		#content ul, #content ol { margin: 0 0 0.75em; padding-left: 1.5em; }
+		#content pre, #content code { font-family: ui-monospace, monospace; font-size: 0.9em; }
+		#content pre { background: color-mix(in srgb, currentColor 8%, transparent); padding: 10px; border-radius: 4px; overflow-x: auto; margin: 0.5em 0; }
+		#content code { padding: 0.15em 0.3em; border-radius: 3px; background: color-mix(in srgb, currentColor 8%, transparent); }
+		#content pre code { padding: 0; background: none; }
+		#content blockquote { border-left: 4px solid color-mix(in srgb, currentColor 30%, transparent); margin: 0.5em 0; padding-left: 1em; color: color-mix(in srgb, currentColor 80%, transparent); }
+		#content a { color: inherit; text-decoration: underline; }
+		#content hr { border: none; border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent); margin: 1.5em 0; }
+		#content table { border-collapse: collapse; margin: 0.5em 0; }
+		#content th, #content td { border: 1px solid color-mix(in srgb, currentColor 20%, transparent); padding: 6px 10px; text-align: left; }
+
+		#status {
+			margin-top: 8px;
+			font-size: 11px;
+			opacity: 0.6;
+			flex-shrink: 0;
+		}
+	</style>
+</head>
+
+<body>
+	<div class="top">
+		<input id="token" type="password" placeholder="API key (&quot;sv_...&quot;)" />
+		<button id="connect">Load</button>
+	</div>
+	<div class="grid">
+		<section id="nav" class="panel" style="width:220px">
+			<div class="panel-head">Files</div>
+			<div class="panel-body">
+				<ul id="files" class="tree"></ul>
+			</div>
+		</section>
+		<div id="divider" class="divider"></div>
+		<section class="panel">
+			<div class="panel-head">Content</div>
+			<div class="panel-body">
+				<div id="content"></div>
+			</div>
+		</section>
+	</div>
+	<div id="status"></div>
+	<script type="module">
+		const { marked } = await import("https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js");
+		const matter = (await import("https://cdn.jsdelivr.net/npm/gray-matter@4.0.3/+esm")).default;
+		const DOMPurify = (await import("https://cdn.jsdelivr.net/npm/dompurify@3.0.9/+esm")).default;
+
+		function renderMarkdown(raw) {
+			if (typeof raw !== "string") return "";
+			try {
+				const { content } = matter(raw);
+				const html = marked.parse(content);
+				return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+			} catch {
+				const escaped = raw
+					.replace(/&/g, "&amp;")
+					.replace(/</g, "&lt;")
+					.replace(/>/g, "&gt;")
+					.replace(/"/g, "&quot;");
+				return "<pre>" + escaped + "</pre>";
+			}
+		}
+
+		const $ = (id) => document.getElementById(id);
+		const tokenEl = $("token");
+		const filesEl = $("files");
+		const contentEl = $("content");
+		const statusEl = $("status");
+
+		let token = localStorage.getItem("sv-token") || "";
+		tokenEl.value = token;
+
+		function status(msg) { statusEl.textContent = msg; }
+
+		async function api(url, opts = {}) {
+			const res = await fetch(url, {
+				...opts,
+				headers: {
+					...(token ? { Authorization: "Bearer " + token } : {}),
+					...(opts.headers || {}),
+				},
+			});
+			if (!res.ok) {
+				const body = await res.json().catch(() => ({}));
+				throw new Error((body.error || "Request failed") + " (" + res.status + ")");
+			}
+			return res;
+		}
+
+		const savedContributor = localStorage.getItem("sv-contributor") || "";
+		const savedFile = localStorage.getItem("sv-file") || "";
+
+		function buildTree(paths) {
+			const root = {};
+			for (const p of paths) {
+				const parts = p.split("/");
+				let node = root;
+				for (const part of parts) {
+					if (!node[part]) node[part] = {};
+					node = node[part];
+				}
+				node.__file = p;
+			}
+			return root;
+		}
+
+		function countFiles(node) {
+			let count = 0;
+			for (const key of Object.keys(node)) {
+				if (key === "__file") { count++; continue; }
+				count += countFiles(node[key]);
+			}
+			return count;
+		}
+
+		function renderTree(node, parentUl, username, depth) {
+			const keys = Object.keys(node).filter((k) => k !== "__file").sort((a, b) => {
+				const aDir = Object.keys(node[a]).some((k) => k !== "__file");
+				const bDir = Object.keys(node[b]).some((k) => k !== "__file");
+				if (aDir !== bDir) return aDir ? -1 : 1;
+				return a.localeCompare(b);
+			});
+			for (const key of keys) {
+				const child = node[key];
+				const isFile = child.__file && Object.keys(child).length === 1;
+				const li = document.createElement("li");
+				const row = document.createElement("div");
+				row.className = "tree-row";
+				row.style.paddingLeft = (depth * 12 + 8) + "px";
+
+				if (isFile) {
+					row.innerHTML = '<span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + key;
+					row.dataset.path = child.__file;
+					row.dataset.contributor = username;
+					row.onclick = () => loadContent(username, child.__file, row);
+				} else {
+					const sub = document.createElement("ul");
+					const fileCount = countFiles(child);
+					row.innerHTML = '<span class="arrow">&#9660;</span><i class="ph ph-folder"></i> ' + key + ' <span style="opacity:0.5">(' + fileCount + ')</span>';
+					row.onclick = () => {
+						sub.classList.toggle("collapsed");
+						row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
+					};
+					renderTree(child, sub, username, depth + 1);
+					li.appendChild(row);
+					li.appendChild(sub);
+					parentUl.appendChild(li);
+					continue;
+				}
+				li.appendChild(row);
+				parentUl.appendChild(li);
+			}
+		}
+
+		function markActiveRow() {
+			filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
+			const activePath = localStorage.getItem("sv-file");
+			const activeContributor = localStorage.getItem("sv-contributor");
+			if (!activePath || !activeContributor) return;
+			const active = filesEl.querySelector(
+				'.tree-row[data-contributor="' + CSS.escape(activeContributor) + '"][data-path="' + CSS.escape(activePath) + '"]'
+			);
+			if (active) active.classList.add("active");
+		}
+
+		function getLoadedContributorList(username) {
+			return filesEl.querySelector(
+				'ul[data-contributor="' + CSS.escape(username) + '"][data-loaded="true"]'
+			);
+		}
+
+		async function loadContributorFiles(username, sub, opts = {}) {
+			const silent = !!opts.silent;
+			sub.innerHTML = "";
+			if (!silent) status("Loading files...");
+			const { files } = await (await api("/v1/files?prefix=" + encodeURIComponent(username + "/"))).json();
+			const prefix = username + "/";
+			const tree = buildTree(files.map((f) => f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path));
+			renderTree(tree, sub, username, 1);
+			markActiveRow();
+			if (!silent) status(files.length + " file(s)");
+			// Update contributor row with file count
+			const row = sub.parentElement && sub.parentElement.querySelector(".tree-row");
+			if (row) {
+				const arrow = row.querySelector(".arrow").outerHTML;
+				row.innerHTML = arrow + '<i class="ph ph-user"></i> ' + username + ' <span style="opacity:0.5">(' + files.length + ')</span>';
+			}
+		}
+
+		async function loadContributors() {
+			filesEl.innerHTML = "";
+			contentEl.innerHTML = "";
+			status("Loading contributors...");
+			const { contributors } = await (await api("/v1/contributors")).json();
+
+			for (const b of contributors) {
+				const li = document.createElement("li");
+				const row = document.createElement("div");
+				row.className = "tree-row";
+				row.style.paddingLeft = "8px";
+				const sub = document.createElement("ul");
+				sub.dataset.contributor = b.username;
+				sub.dataset.loaded = "false";
+				let loaded = false;
+				row.innerHTML = '<span class="arrow">&#9654;</span><i class="ph ph-user"></i> ' + b.username;
+				row.onclick = async () => {
+					const collapsed = sub.classList.contains("collapsed") || !sub.hasChildNodes();
+					if (collapsed) {
+						sub.classList.remove("collapsed");
+						row.querySelector(".arrow").innerHTML = "&#9660;";
+						if (!loaded) {
+							loaded = true;
+							sub.dataset.loaded = "true";
+							await loadContributorFiles(b.username, sub);
+						}
+					} else {
+						sub.classList.add("collapsed");
+						row.querySelector(".arrow").innerHTML = "&#9654;";
+					}
+				};
+				li.appendChild(row);
+				li.appendChild(sub);
+				filesEl.appendChild(li);
+
+				if (b.username === savedContributor) {
+					sub.classList.remove("collapsed");
+					row.querySelector(".arrow").innerHTML = "&#9660;";
+					loaded = true;
+					sub.dataset.loaded = "true";
+					await loadContributorFiles(b.username, sub);
+					if (savedFile) {
+						const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
+						if (match) await loadContent(b.username, savedFile, match);
+					}
+				}
+			}
+			status(contributors.length + " contributor(s)");
+		}
+
+		async function loadContent(username, path, row) {
+			filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
+			row.classList.add("active");
+			localStorage.setItem("sv-contributor", username);
+			localStorage.setItem("sv-file", path);
+			status("Loading " + path + "...");
+			const res = await api("/v1/sh", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ cmd: 'cat "' + username + "/" + path + '"' }),
+			});
+			const text = await res.text();
+			contentEl.innerHTML = renderMarkdown(text);
+			status(path);
+		}
+
+		$("connect").onclick = () => {
+			token = tokenEl.value.trim();
+			localStorage.setItem("sv-token", token);
+			loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
+		};
+
+		// --- SSE real-time updates ---
+		let evtSource = null;
+		const contributorReloadTimers = new Map();
+
+		function scheduleContributorReload(username) {
+			if (!getLoadedContributorList(username)) return;
+
+			const existing = contributorReloadTimers.get(username);
+			if (existing) clearTimeout(existing);
+
+			const timer = setTimeout(() => {
+				contributorReloadTimers.delete(username);
+				const targetUl = getLoadedContributorList(username);
+				if (!targetUl) return;
+				loadContributorFiles(username, targetUl, { silent: true }).catch((e) => status(e.message));
+			}, 100);
+
+			contributorReloadTimers.set(username, timer);
+		}
+
+		function connectSSE() {
+			if (evtSource) evtSource.close();
+			if (!token) return;
+
+			evtSource = new EventSource("/v1/events?token=" + encodeURIComponent(token));
+
+			evtSource.addEventListener("file_updated", (e) => {
+				const { contributor, path } = JSON.parse(e.data);
+				scheduleContributorReload(contributor);
+				// If this file is currently open, reload its content
+				if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
+					api("/v1/sh", {
+						method: "POST",
+						headers: { "Content-Type": "application/json" },
+						body: JSON.stringify({ cmd: 'cat "' + contributor + "/" + path + '"' }),
+					})
+						.then((res) => res.text())
+						.then((text) => { contentEl.innerHTML = renderMarkdown(text); });
+				}
+			});
+
+			evtSource.addEventListener("file_deleted", (e) => {
+				const { contributor, path } = JSON.parse(e.data);
+				scheduleContributorReload(contributor);
+				// If this file was being viewed, clear the content
+				if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
+					contentEl.innerHTML = "";
+					status("File deleted: " + path);
+				}
+			});
+
+			evtSource.onerror = () => {
+				// EventSource auto-reconnects
+			};
+		}
+
+		if (token) loadContributors().then(() => connectSSE()).catch((e) => status(e.message));
+
+		// Divider drag
+		const divider = $("divider");
+		const nav = $("nav");
+		const savedNav = localStorage.getItem("sv-nav-w");
+		if (savedNav) nav.style.width = savedNav + "px";
+		divider.addEventListener("mousedown", (e) => {
+			e.preventDefault();
+			divider.classList.add("dragging");
+			const onMove = (e) => {
+				const w = e.clientX - nav.getBoundingClientRect().left;
+				if (w > 80 && w < window.innerWidth - 120) nav.style.width = w + "px";
+			};
+			const onUp = () => {
+				divider.classList.remove("dragging");
+				localStorage.setItem("sv-nav-w", nav.offsetWidth);
+				document.removeEventListener("mousemove", onMove);
+				document.removeEventListener("mouseup", onUp);
+			};
+			document.addEventListener("mousemove", onMove);
+			document.addEventListener("mouseup", onUp);
+		});
+	</script>
+</body>
+
 </html>
