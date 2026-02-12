@@ -12,7 +12,7 @@ export interface SeedvaultClient {
   /** GET /v1/contributors */
   listContributors(): Promise<ContributorsResponse>;
   /** PUT /v1/files/:username/* */
-  putFile(username: string, path: string, content: string): Promise<FileWriteResponse>;
+  putFile(username: string, path: string, content: string, opts?: PutFileOptions): Promise<FileWriteResponse>;
   /** DELETE /v1/files/:username/* */
   deleteFile(username: string, path: string): Promise<void>;
   /** GET /v1/files?prefix=username/... */
@@ -50,12 +50,25 @@ export interface FileWriteResponse {
   path: string;
   size: number;
   modifiedAt: string;
+  originCtime?: string;
+  originMtime?: string;
+  serverCreatedAt?: string;
+  serverModifiedAt?: string;
 }
 
 export interface FileEntry {
   path: string;
   size: number;
   modifiedAt: string;
+  originCtime?: string;
+  originMtime?: string;
+  serverCreatedAt?: string;
+  serverModifiedAt?: string;
+}
+
+export interface PutFileOptions {
+  originCtime?: string;
+  originMtime?: string;
 }
 
 export interface FilesResponse {
@@ -90,7 +103,7 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
   async function request(
     method: string,
     path: string,
-    opts: { body?: string; contentType?: string; auth?: boolean } = {}
+    opts: { body?: string; contentType?: string; auth?: boolean; extraHeaders?: Record<string, string> } = {}
   ): Promise<Response> {
     const headers: Record<string, string> = {};
     if (opts.auth !== false && token) {
@@ -98,6 +111,9 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     }
     if (opts.contentType) {
       headers["Content-Type"] = opts.contentType;
+    }
+    if (opts.extraHeaders) {
+      Object.assign(headers, opts.extraHeaders);
     }
 
     const res = await fetch(`${base}${path}`, {
@@ -147,10 +163,14 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
       return res.json();
     },
 
-    async putFile(username: string, path: string, content: string): Promise<FileWriteResponse> {
+    async putFile(username: string, path: string, content: string, opts?: PutFileOptions): Promise<FileWriteResponse> {
+      const extraHeaders: Record<string, string> = {};
+      if (opts?.originCtime) extraHeaders["X-Origin-Ctime"] = opts.originCtime;
+      if (opts?.originMtime) extraHeaders["X-Origin-Mtime"] = opts.originMtime;
       const res = await request("PUT", `/v1/files/${username}/${encodePath(path)}`, {
         body: content,
         contentType: "text/markdown",
+        extraHeaders: Object.keys(extraHeaders).length > 0 ? extraHeaders : undefined,
       });
       return res.json();
     },

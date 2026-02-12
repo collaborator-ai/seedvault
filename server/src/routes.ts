@@ -11,6 +11,9 @@ import {
 	validateUsername,
 	hasAnyContributor,
 	listContributors,
+	upsertFileMetadata,
+	deleteFileMetadata,
+	listFileMetadata,
 } from "./db.js";
 import {
 	generateToken,
@@ -232,8 +235,14 @@ export function createApp(storageRoot: string): Hono {
 
 		const content = await c.req.text();
 
+		const now = new Date().toISOString();
+		const originCtime = c.req.header("X-Origin-Ctime") || now;
+		const originMtime = c.req.header("X-Origin-Mtime") || now;
+
 		try {
 			const result = await writeFileAtomic(storageRoot, parsed.username, parsed.filePath, content);
+
+			const meta = upsertFileMetadata(parsed.username, parsed.filePath, originCtime, originMtime);
 
 			broadcast("file_updated", {
 				contributor: parsed.username,
@@ -244,7 +253,13 @@ export function createApp(storageRoot: string): Hono {
 
 			qmd.triggerUpdate();
 
-			return c.json(result);
+			return c.json({
+				...result,
+				originCtime: meta.origin_ctime,
+				originMtime: meta.origin_mtime,
+				serverCreatedAt: meta.server_created_at,
+				serverModifiedAt: meta.server_modified_at,
+			});
 		} catch (e) {
 			if (e instanceof FileTooLargeError) {
 				return c.json({ error: e.message }, 413);
@@ -274,6 +289,7 @@ export function createApp(storageRoot: string): Hono {
 
 		try {
 			await deleteFile(storageRoot, parsed.username, parsed.filePath);
+			deleteFileMetadata(parsed.username, parsed.filePath);
 
 			broadcast("file_deleted", {
 				contributor: parsed.username,
@@ -309,12 +325,20 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		const files = await listFiles(storageRoot, username, subPrefix);
+		const metaMap = listFileMetadata(username, subPrefix);
 		// Return full paths (username-prefixed)
 		return c.json({
-			files: files.map((f) => ({
-				...f,
-				path: `${username}/${f.path}`,
-			})),
+			files: files.map((f) => {
+				const meta = metaMap.get(f.path);
+				return {
+					...f,
+					path: `${username}/${f.path}`,
+					originCtime: meta?.origin_ctime,
+					originMtime: meta?.origin_mtime,
+					serverCreatedAt: meta?.server_created_at,
+					serverModifiedAt: meta?.server_modified_at,
+				};
+			}),
 		});
 	});
 

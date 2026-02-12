@@ -404,18 +404,29 @@
 		const savedContributor = localStorage.getItem("sv-contributor") || "";
 		const savedFile = localStorage.getItem("sv-file") || "";
 
-		function buildTree(paths) {
+		function buildTree(fileEntries) {
 			const root = {};
-			for (const p of paths) {
-				const parts = p.split("/");
+			for (const f of fileEntries) {
+				const parts = f.path.split("/");
 				let node = root;
 				for (const part of parts) {
 					if (!node[part]) node[part] = {};
 					node = node[part];
 				}
-				node.__file = p;
+				node.__file = f;
 			}
 			return root;
+		}
+
+		function getNewestCtime(node) {
+			if (node.__file) return node.__file.originCtime || node.__file.serverCreatedAt || "";
+			let newest = "";
+			for (const key of Object.keys(node)) {
+				if (key === "__file") continue;
+				const t = getNewestCtime(node[key]);
+				if (t > newest) newest = t;
+			}
+			return newest;
 		}
 
 		function countFiles(node) {
@@ -432,6 +443,9 @@
 				const aDir = Object.keys(node[a]).some((k) => k !== "__file");
 				const bDir = Object.keys(node[b]).some((k) => k !== "__file");
 				if (aDir !== bDir) return aDir ? -1 : 1;
+				const aTime = getNewestCtime(node[a]);
+				const bTime = getNewestCtime(node[b]);
+				if (aTime !== bTime) return bTime.localeCompare(aTime);
 				return a.localeCompare(b);
 			});
 			for (const key of keys) {
@@ -444,9 +458,9 @@
 
 				if (isFile) {
 					row.innerHTML = '<span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + key;
-					row.dataset.path = child.__file;
+					row.dataset.path = child.__file.path;
 					row.dataset.contributor = username;
-					row.onclick = () => loadContent(username, child.__file, row);
+					row.onclick = () => loadContent(username, child.__file.path, row);
 				} else {
 					const sub = document.createElement("ul");
 					const fileCount = countFiles(child);
@@ -522,7 +536,10 @@
 			if (!silent) status("Loading files...");
 			const { files } = await (await api("/v1/files?prefix=" + encodeURIComponent(username + "/"))).json();
 			const prefix = username + "/";
-			const tree = buildTree(files.map((f) => f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path));
+			const tree = buildTree(files.map((f) => ({
+				...f,
+				path: f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path,
+			})));
 			renderTree(tree, sub, username, 1);
 			markActiveRow();
 			if (!silent) status(files.length + " file(s)");

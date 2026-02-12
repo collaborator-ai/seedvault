@@ -36,6 +36,17 @@ export function initDb(dbPath: string): Database {
       used_at TEXT,
       used_by TEXT REFERENCES contributors(username)
     );
+
+    CREATE TABLE IF NOT EXISTS files (
+      contributor TEXT NOT NULL,
+      path TEXT NOT NULL,
+      origin_ctime TEXT NOT NULL,
+      origin_mtime TEXT NOT NULL,
+      server_created_at TEXT NOT NULL,
+      server_modified_at TEXT NOT NULL,
+      PRIMARY KEY (contributor, path),
+      FOREIGN KEY (contributor) REFERENCES contributors(username)
+    );
   `);
 
   return db;
@@ -161,4 +172,65 @@ export function markInviteUsed(id: string, usedBy: string): void {
   getDb()
     .prepare("UPDATE invites SET used_at = ?, used_by = ? WHERE id = ?")
     .run(new Date().toISOString(), usedBy, id);
+}
+
+// --- File Metadata ---
+
+export interface FileMetadata {
+  contributor: string;
+  path: string;
+  origin_ctime: string;
+  origin_mtime: string;
+  server_created_at: string;
+  server_modified_at: string;
+}
+
+export function upsertFileMetadata(
+  contributor: string,
+  path: string,
+  originCtime: string,
+  originMtime: string
+): FileMetadata {
+  const now = new Date().toISOString();
+  getDb()
+    .prepare(
+      `INSERT INTO files (contributor, path, origin_ctime, origin_mtime, server_created_at, server_modified_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT (contributor, path) DO UPDATE SET
+         origin_mtime = excluded.origin_mtime,
+         server_modified_at = excluded.server_modified_at`
+    )
+    .run(contributor, path, originCtime, originMtime, now, now);
+
+  return getFileMetadata(contributor, path)!;
+}
+
+export function getFileMetadata(contributor: string, path: string): FileMetadata | null {
+  return getDb()
+    .prepare("SELECT * FROM files WHERE contributor = ? AND path = ?")
+    .get(contributor, path) as FileMetadata | null;
+}
+
+export function listFileMetadata(contributor: string, prefix?: string): Map<string, FileMetadata> {
+  const map = new Map<string, FileMetadata>();
+  let rows: FileMetadata[];
+  if (prefix) {
+    rows = getDb()
+      .prepare("SELECT * FROM files WHERE contributor = ? AND path LIKE ?")
+      .all(contributor, prefix + "%") as FileMetadata[];
+  } else {
+    rows = getDb()
+      .prepare("SELECT * FROM files WHERE contributor = ?")
+      .all(contributor) as FileMetadata[];
+  }
+  for (const row of rows) {
+    map.set(row.path, row);
+  }
+  return map;
+}
+
+export function deleteFileMetadata(contributor: string, path: string): void {
+  getDb()
+    .prepare("DELETE FROM files WHERE contributor = ? AND path = ?")
+    .run(contributor, path);
 }

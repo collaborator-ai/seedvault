@@ -1,6 +1,6 @@
 import { readdir, stat, readFile } from "fs/promises";
 import { join, relative } from "path";
-import type { SeedvaultClient } from "../client.js";
+import type { SeedvaultClient, FileEntry } from "../client.js";
 import type { CollectionConfig } from "../config.js";
 import type { FileEvent } from "./watcher.js";
 import { RetryQueue } from "./queue.js";
@@ -88,6 +88,8 @@ export class Syncer {
           serverPath: f.path,
           content: null,
           queuedAt: new Date().toISOString(),
+          originCtime: null,
+          originMtime: null,
         });
       }
     });
@@ -113,24 +115,25 @@ export class Syncer {
         collection.name + "/"
       );
 
-      // Build a map of server files by path -> modifiedAt
-      const serverMap = new Map<string, string>();
+      // Build a map of server files by path -> FileEntry
+      const serverMap = new Map<string, FileEntry>();
       for (const f of serverFiles) {
-        serverMap.set(f.path, f.modifiedAt);
+        serverMap.set(f.path, f);
       }
 
       // Phase 1: Prepare — read local files and decide what to upload
       const localFiles = await walkMd(collection.path);
       const localServerPaths = new Set<string>();
-      const toUpload: { serverPath: string; content: string }[] = [];
+      const toUpload: { serverPath: string; content: string; originCtime: string; originMtime: string }[] = [];
 
       for (const localFile of localFiles) {
         const relPath = toPosixPath(relative(collection.path, localFile.path));
         const serverPath = `${collection.name}/${relPath}`;
         localServerPaths.add(serverPath);
 
-        const serverMod = serverMap.get(serverPath);
-        if (serverMod) {
+        const serverEntry = serverMap.get(serverPath);
+        if (serverEntry) {
+          const serverMod = serverEntry.originMtime || serverEntry.modifiedAt;
           const serverDate = new Date(serverMod).getTime();
           const localDate = localFile.mtimeMs;
           if (localDate <= serverDate) {
@@ -140,13 +143,18 @@ export class Syncer {
         }
 
         const content = await readFile(localFile.path, "utf-8");
-        toUpload.push({ serverPath, content });
+        const originCtime = new Date(localFile.birthtimeMs).toISOString();
+        const originMtime = new Date(localFile.mtimeMs).toISOString();
+        toUpload.push({ serverPath, content, originCtime, originMtime });
       }
 
       // Phase 2: Upload with bounded concurrency
       await pooled(toUpload, SYNC_CONCURRENCY, async (item) => {
         try {
-          await this.client.putFile(this.username, item.serverPath, item.content);
+          await this.client.putFile(this.username, item.serverPath, item.content, {
+            originCtime: item.originCtime,
+            originMtime: item.originMtime,
+          });
           uploaded++;
         } catch {
           this.queue.enqueue({
@@ -155,6 +163,8 @@ export class Syncer {
             serverPath: item.serverPath,
             content: item.content,
             queuedAt: new Date().toISOString(),
+            originCtime: item.originCtime,
+            originMtime: item.originMtime,
           });
         }
       });
@@ -231,7 +241,12 @@ export class Syncer {
    */
   async handleEvent(event: FileEvent): Promise<void> {
     if (event.type === "add" || event.type === "change") {
-      const content = await readFile(event.localPath, "utf-8");
+      const [content, s] = await Promise.all([
+        readFile(event.localPath, "utf-8"),
+        stat(event.localPath),
+      ]);
+      const originCtime = new Date(s.birthtimeMs).toISOString();
+      const originMtime = new Date(s.mtimeMs).toISOString();
       this.log(`PUT ${event.serverPath} (${content.length} bytes)`);
       this.queue.enqueue({
         type: "put",
@@ -239,6 +254,8 @@ export class Syncer {
         serverPath: event.serverPath,
         content,
         queuedAt: new Date().toISOString(),
+        originCtime,
+        originMtime,
       });
     } else if (event.type === "unlink") {
       this.log(`DELETE ${event.serverPath}`);
@@ -248,6 +265,8 @@ export class Syncer {
         serverPath: event.serverPath,
         content: null,
         queuedAt: new Date().toISOString(),
+        originCtime: null,
+        originMtime: null,
       });
     }
   }
@@ -268,6 +287,7 @@ export class Syncer {
 interface LocalFile {
   path: string;
   mtimeMs: number;
+  birthtimeMs: number;
 }
 
 function toPosixPath(path: string): string {
@@ -304,7 +324,7 @@ async function walkDirRecursive(dir: string, results: LocalFile[]): Promise<void
       await walkDirRecursive(full, results);
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
       const s = await stat(full);
-      results.push({ path: full, mtimeMs: s.mtimeMs });
+      results.push({ path: full, mtimeMs: s.mtimeMs, birthtimeMs: s.birthtimeMs });
     }
   }
 }

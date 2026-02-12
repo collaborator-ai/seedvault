@@ -474,3 +474,146 @@ describe("file deletes", () => {
     await waitForDelete(client, username, `${collectionName}/toRemove/b.md`);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Origin timestamps
+// ---------------------------------------------------------------------------
+
+describe("origin timestamps", () => {
+  test("PUT returns origin timestamps when headers sent", async () => {
+    const ctime = "2024-06-15T10:30:00.000Z";
+    const mtime = "2024-07-20T14:45:00.000Z";
+
+    const res = await client.putFile(username, "ts/with-headers.md", "# Timestamped\n", {
+      originCtime: ctime,
+      originMtime: mtime,
+    });
+
+    expect(res.originCtime).toBe(ctime);
+    expect(res.originMtime).toBe(mtime);
+    expect(res.serverCreatedAt).toBeDefined();
+    expect(res.serverModifiedAt).toBeDefined();
+  });
+
+  test("PUT without headers uses server fallback", async () => {
+    const before = new Date().toISOString();
+    const res = await client.putFile(username, "ts/no-headers.md", "# No headers\n");
+    const after = new Date().toISOString();
+
+    expect(res.originCtime).toBeDefined();
+    expect(res.originMtime).toBeDefined();
+    // Fallback timestamps should be approximately now
+    expect(res.originCtime! >= before).toBe(true);
+    expect(res.originMtime! <= after).toBe(true);
+  });
+
+  test("origin_ctime preserved on update, origin_mtime updated", async () => {
+    const ctime1 = "2024-01-01T00:00:00.000Z";
+    const mtime1 = "2024-01-01T12:00:00.000Z";
+    const res1 = await client.putFile(username, "ts/update-test.md", "# V1\n", {
+      originCtime: ctime1,
+      originMtime: mtime1,
+    });
+
+    await Bun.sleep(50); // ensure server_modified_at differs
+
+    const ctime2 = "2024-06-01T00:00:00.000Z";
+    const mtime2 = "2024-06-15T09:00:00.000Z";
+    const res2 = await client.putFile(username, "ts/update-test.md", "# V2\n", {
+      originCtime: ctime2,
+      originMtime: mtime2,
+    });
+
+    // origin_ctime preserved from first upload
+    expect(res2.originCtime).toBe(ctime1);
+    // origin_mtime updated to second upload's value
+    expect(res2.originMtime).toBe(mtime2);
+    // server_created_at preserved
+    expect(res2.serverCreatedAt).toBe(res1.serverCreatedAt);
+    // server_modified_at advanced
+    expect(res2.serverModifiedAt! > res1.serverModifiedAt!).toBe(true);
+  });
+
+  test("listFiles returns origin timestamps", async () => {
+    const { files } = await client.listFiles(username, "ts/");
+    const f = files.find((f) => f.path === "ts/with-headers.md");
+    expect(f).toBeDefined();
+    expect(f!.originCtime).toBe("2024-06-15T10:30:00.000Z");
+    expect(f!.originMtime).toBe("2024-07-20T14:45:00.000Z");
+    expect(f!.serverCreatedAt).toBeDefined();
+    expect(f!.serverModifiedAt).toBeDefined();
+  });
+
+  test("delete removes metadata, re-upload gets fresh ctime", async () => {
+    const ctime1 = "2023-01-01T00:00:00.000Z";
+    await client.putFile(username, "ts/delete-reup.md", "# First\n", {
+      originCtime: ctime1,
+      originMtime: "2023-01-01T12:00:00.000Z",
+    });
+
+    await client.deleteFile(username, "ts/delete-reup.md");
+
+    const ctime2 = "2025-01-01T00:00:00.000Z";
+    const mtime2 = "2025-01-01T12:00:00.000Z";
+    const res = await client.putFile(username, "ts/delete-reup.md", "# Second\n", {
+      originCtime: ctime2,
+      originMtime: mtime2,
+    });
+
+    // Fresh ctime — not the old one
+    expect(res.originCtime).toBe(ctime2);
+    expect(res.originMtime).toBe(mtime2);
+  });
+
+  test("millisecond precision preserved", async () => {
+    const ctime = "2024-03-15T08:30:45.123Z";
+    const mtime = "2024-04-20T16:15:30.456Z";
+
+    const res = await client.putFile(username, "ts/precision.md", "# Precise\n", {
+      originCtime: ctime,
+      originMtime: mtime,
+    });
+
+    expect(res.originCtime).toBe(ctime);
+    expect(res.originMtime).toBe(mtime);
+
+    // Verify through listing as well
+    const { files } = await client.listFiles(username, "ts/");
+    const f = files.find((f) => f.path === "ts/precision.md");
+    expect(f!.originCtime).toBe(ctime);
+    expect(f!.originMtime).toBe(mtime);
+  });
+
+  test("multiple rapid updates preserve original ctime", async () => {
+    const originalCtime = "2024-01-01T00:00:00.000Z";
+    let lastMtime = "";
+
+    for (let i = 0; i < 5; i++) {
+      lastMtime = `2024-0${i + 1}-15T12:00:00.000Z`;
+      await client.putFile(username, "ts/rapid.md", `# Version ${i + 1}\n`, {
+        originCtime: `2024-0${i + 1}-01T00:00:00.000Z`,
+        originMtime: lastMtime,
+      });
+    }
+
+    const { files } = await client.listFiles(username, "ts/");
+    const f = files.find((f) => f.path === "ts/rapid.md");
+    expect(f!.originCtime).toBe(originalCtime);
+    expect(f!.originMtime).toBe(lastMtime);
+  });
+
+  test("files uploaded without headers still have fallback timestamps in listings", async () => {
+    const before = new Date().toISOString();
+    await client.putFile(username, "ts/legacy.md", "# Legacy client\n");
+
+    const { files } = await client.listFiles(username, "ts/");
+    const f = files.find((f) => f.path === "ts/legacy.md");
+    expect(f).toBeDefined();
+    expect(f!.originCtime).toBeDefined();
+    expect(f!.originMtime).toBeDefined();
+    expect(f!.serverCreatedAt).toBeDefined();
+    expect(f!.serverModifiedAt).toBeDefined();
+    // Fallback timestamps should be >= before
+    expect(f!.originCtime! >= before).toBe(true);
+  });
+});

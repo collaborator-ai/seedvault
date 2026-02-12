@@ -11,6 +11,10 @@ export interface QueuedOperation {
   content: string | null;
   /** Timestamp when the operation was queued */
   queuedAt: string;
+  /** Original file creation time from contributor's device */
+  originCtime: string | null;
+  /** Original file modification time from contributor's device */
+  originMtime: string | null;
 }
 
 // --- Queue ---
@@ -70,7 +74,10 @@ export class RetryQueue {
       const op = this.items[0];
       try {
         if (op.type === "put" && op.content !== null) {
-          await this.client.putFile(op.username, op.serverPath, op.content);
+          const opts = op.originCtime || op.originMtime
+            ? { originCtime: op.originCtime ?? undefined, originMtime: op.originMtime ?? undefined }
+            : undefined;
+          await this.client.putFile(op.username, op.serverPath, op.content, opts);
         } else if (op.type === "delete") {
           await this.client.deleteFile(op.username, op.serverPath);
         }
