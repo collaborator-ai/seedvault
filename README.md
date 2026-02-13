@@ -84,7 +84,7 @@ Every token has the same permissions:
 - **Read** files from any contributor
 - **List** contributors, search, subscribe to SSE events
 
-The first contributor created (via signup without invite) is the **operator**. The operator can generate invite codes for others.
+The first contributor created (via signup without invite) is the **admin**. The admin can generate invite codes for others.
 
 ### Token storage
 
@@ -101,7 +101,7 @@ Every token has a `contributor` (username) — there are no unscoped tokens.
 ```
 POST .../signup                → no auth (requires invite code, except first user)
 GET  .../me                    → any valid token (returns token's username)
-POST .../invites               → operator only
+POST .../invites               → admin only
 GET  .../contributors          → any valid token
 PUT  .../files/*               → token's username must match path prefix
 DELETE .../files/*             → token's username must match path prefix
@@ -167,7 +167,7 @@ Resolve a token to its contributor. Requires any valid token. Used by the CLI du
 ---
 
 #### `POST /v1/invites`
-Generate an invite code. Requires operator token (the first user).
+Generate an invite code. Requires admin token (the first user).
 
 **Response: `201 Created`**
 ```json
@@ -341,7 +341,7 @@ A single SQLite database stores all data — content, auth, and metadata. No fil
 ```sql
 CREATE TABLE contributors (
   username TEXT PRIMARY KEY,
-  is_operator BOOLEAN NOT NULL DEFAULT FALSE,
+  is_admin BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TEXT NOT NULL
 );
 
@@ -528,7 +528,7 @@ sv grep "search term"      # Full-text search across all contributors
 **Vault:**
 ```bash
 sv contributors            # List all contributors
-sv invite                  # Generate an invite code (operator only)
+sv invite                  # Generate an invite code (admin only)
 ```
 
 ### Configuration
@@ -677,7 +677,7 @@ Full-text search is built into the server via SQLite FTS5. The FTS index is main
 On first start with an empty `DATA_DIR`, the server:
 
 1. Creates `DATA_DIR/seedvault.db` with schema (including FTS5 tables and triggers)
-2. Waits for the first `POST /v1/signup` (no invite required — this becomes the operator)
+2. Waits for the first `POST /v1/signup` (no invite required — this becomes the admin)
 
 ---
 
@@ -697,7 +697,7 @@ All error responses use a consistent format:
 |------|---------|
 | `400` | Bad request — invalid path, missing required field, file too large, path doesn't end in `.md` |
 | `401` | Unauthorized — missing or invalid token |
-| `403` | Forbidden — token doesn't have permission (e.g., writing to another contributor, non-operator generating invites) |
+| `403` | Forbidden — token doesn't have permission (e.g., writing to another contributor, non-admin generating invites) |
 | `404` | Not found — contributor or file doesn't exist |
 | `409` | Conflict — contributor name already taken (on signup) |
 | `413` | Payload too large — file exceeds 10 MB |
@@ -708,7 +708,7 @@ All error responses use a consistent format:
 
 **In:**
 - Vault with multiple contributors (one per contributor)
-- Signup with invite system (first user is operator)
+- Signup with invite system (first user is admin)
 - `sv` CLI with daemon, collection management, and vault commands
 - Curl-pipe-bash installer (`seedvault.ai/install.sh`)
 - Structured read endpoints (`GET /v1/files/:username/*`, `GET /v1/files?prefix=`)

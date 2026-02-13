@@ -156,9 +156,9 @@ export function createApp(): Hono {
 	authed.post("/v1/invites", (c) => {
 		const { contributor } = getAuthCtx(c);
 
-		if (!contributor.is_operator) {
+		if (!contributor.is_admin) {
 			return c.json(
-				{ error: "Only the operator can generate invite codes" },
+				{ error: "Only the admin can generate invite codes" },
 				403
 			);
 		}

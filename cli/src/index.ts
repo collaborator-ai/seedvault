@@ -45,7 +45,7 @@ Files:
 
 Vault:
   contributors                  List all contributors
-  invite                        Generate an invite code (operator only)
+  invite                        Generate an invite code (admin only)
 
 Maintenance:
   update                        Update CLI to latest version

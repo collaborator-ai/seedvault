@@ -57,7 +57,7 @@ sv init --server https://vault.example.com --token sv_abc123 --contributor-id co
 sv init --server https://vault.example.com --name my-notes --invite INVITE_CODE
 ```
 
-### Non-interactive setup (first user / operator)
+### Non-interactive setup (first user / admin)
 ```bash
 sv init --server https://vault.example.com --name my-notes
 ```
@@ -147,7 +147,7 @@ curl -s "https://vault.example.com/v1/search?q=context&contributor=yiliu" \
 sv contributors
 ```
 
-### Generate an invite code (operator only)
+### Generate an invite code (admin only)
 ```bash
 sv invite
 ```

@@ -16,7 +16,7 @@ export function initDb(dbPath: string): Database {
   db.exec(`
     CREATE TABLE IF NOT EXISTS contributors (
       username TEXT PRIMARY KEY,
-      is_operator BOOLEAN NOT NULL DEFAULT FALSE,
+      is_admin BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL
     );
 
@@ -134,40 +134,40 @@ export function validatePath(filePath: string): string | null {
 
 export interface Contributor {
   username: string;
-  is_operator: boolean;
+  is_admin: boolean;
   created_at: string;
 }
 
 export function createContributor(
   username: string,
-  isOperator: boolean
+  isAdmin: boolean
 ): Contributor {
   const now = new Date().toISOString();
   getDb()
     .prepare(
-      "INSERT INTO contributors (username, is_operator, created_at) VALUES (?, ?, ?)"
+      "INSERT INTO contributors (username, is_admin, created_at) VALUES (?, ?, ?)"
     )
-    .run(username, isOperator ? 1 : 0, now);
-  return { username, is_operator: isOperator, created_at: now };
+    .run(username, isAdmin ? 1 : 0, now);
+  return { username, is_admin: isAdmin, created_at: now };
 }
 
 export function getContributor(username: string): Contributor | null {
   const row = getDb()
     .prepare(
-      "SELECT username, is_operator, created_at FROM contributors WHERE username = ?"
+      "SELECT username, is_admin, created_at FROM contributors WHERE username = ?"
     )
     .get(username) as Contributor | null;
-  if (row) row.is_operator = Boolean(row.is_operator);
+  if (row) row.is_admin = Boolean(row.is_admin);
   return row;
 }
 
 export function listContributors(): Contributor[] {
   const rows = getDb()
     .prepare(
-      "SELECT username, is_operator, created_at FROM contributors ORDER BY created_at ASC"
+      "SELECT username, is_admin, created_at FROM contributors ORDER BY created_at ASC"
     )
     .all() as Contributor[];
-  return rows.map((r) => ({ ...r, is_operator: Boolean(r.is_operator) }));
+  return rows.map((r) => ({ ...r, is_admin: Boolean(r.is_admin) }));
 }
 
 export function hasAnyContributor(): boolean {

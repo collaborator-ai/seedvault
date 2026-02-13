@@ -4,7 +4,7 @@ import { createClient, ApiError } from "../client.js";
 /**
  * sv invite
  *
- * Generate an invite code (operator only).
+ * Generate an invite code (admin only).
  */
 export async function invite(): Promise<void> {
   const config = loadConfig();
@@ -18,7 +18,7 @@ export async function invite(): Promise<void> {
     console.log(`  sv init --server ${config.server} --name <name> --invite ${result.invite}`);
   } catch (e) {
     if (e instanceof ApiError && e.status === 403) {
-      console.error("Only the operator can generate invite codes.");
+      console.error("Only the admin can generate invite codes.");
       process.exit(1);
     }
     throw e;
