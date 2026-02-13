@@ -90,7 +90,7 @@ function setupWatcher(collectionName: string, tmpPrefix: string) {
   beforeAll(async () => {
     watchDir = makeTempDir(tmpPrefix);
     const collections: CollectionConfig[] = [{ path: watchDir, name: collectionName }];
-    const syncHandler = createSyncHandler(client, username);
+    const syncHandler = createSyncHandler(client, username, collections);
     watcher = createWatcher(collections, (event) => {
       let task: Promise<void>;
       task = syncHandler(event).finally(() => {
@@ -112,19 +112,59 @@ function setupWatcher(collectionName: string, tmpPrefix: string) {
 
 /**
  * Direct sync handler: processes watcher events by calling the API directly.
+ * Mirrors the Syncer's event handling but without debouncing/queue for test simplicity.
  */
-function createSyncHandler(cl: SeedvaultClient, username: string) {
+function createSyncHandler(cl: SeedvaultClient, uname: string, collections: CollectionConfig[]) {
   return async (event: FileEvent) => {
     if (event.type === "add" || event.type === "change") {
       const content = readFileSync(event.localPath, "utf-8");
-      await cl.putFile(username, event.serverPath, content);
+      await cl.putFile(uname, event.serverPath, content);
     } else if (event.type === "unlink") {
-      await cl.deleteFile(username, event.serverPath).catch((e) => {
+      await cl.deleteFile(uname, event.serverPath).catch((e) => {
         if (e instanceof ApiError && e.status === 404) return;
         throw e;
       });
+    } else if (event.type === "unlinkDir") {
+      const collection = collections.find((c) => c.name === event.collectionName);
+      if (!collection) return;
+      // Diff server files against local to find orphans
+      const { files: serverFiles } = await cl.listFiles(uname, collection.name + "/");
+      const localFiles = await walkMdPaths(collection.path, collection.name);
+      const orphans = serverFiles.filter((f) => !localFiles.has(f.path));
+      for (const f of orphans) {
+        await cl.deleteFile(uname, f.path).catch((e) => {
+          if (e instanceof ApiError && e.status === 404) return;
+          throw e;
+        });
+      }
     }
   };
+}
+
+/** Walk a directory for .md files and return their server paths. */
+async function walkMdPaths(dir: string, collectionName: string): Promise<Set<string>> {
+  const paths = new Set<string>();
+  try {
+    const { readdir, stat } = await import("fs/promises");
+    const { relative } = await import("path");
+    async function walk(d: string) {
+      const entries = await readdir(d, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name.startsWith(".")) continue;
+        const full = join(d, entry.name);
+        if (entry.isDirectory()) {
+          await walk(full);
+        } else if (entry.isFile() && entry.name.endsWith(".md")) {
+          const rel = relative(dir, full).split("\\").join("/");
+          paths.add(`${collectionName}/${rel}`);
+        }
+      }
+    }
+    await walk(dir);
+  } catch {
+    // Directory may not exist (deleted)
+  }
+  return paths;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +469,43 @@ describe("file deletes", () => {
 
     await waitForDelete(client, username, `${collectionName}/toRemove/a.md`);
     await waitForDelete(client, username, `${collectionName}/toRemove/b.md`);
+  });
+
+  test("deleting a nested directory tree removes all files", async () => {
+    const base = join(ctx.watchDir, "deep");
+    await mkdir(join(base, "level1", "level2"), { recursive: true });
+    await writeFile(join(base, "root.md"), "# Root\n");
+    await writeFile(join(base, "level1", "mid.md"), "# Mid\n");
+    await writeFile(join(base, "level1", "level2", "leaf.md"), "# Leaf\n");
+
+    await waitForFile(client, username, `${collectionName}/deep/root.md`);
+    await waitForFile(client, username, `${collectionName}/deep/level1/mid.md`);
+    await waitForFile(client, username, `${collectionName}/deep/level1/level2/leaf.md`);
+
+    await rm(base, { recursive: true });
+
+    await waitForDelete(client, username, `${collectionName}/deep/root.md`);
+    await waitForDelete(client, username, `${collectionName}/deep/level1/mid.md`);
+    await waitForDelete(client, username, `${collectionName}/deep/level1/level2/leaf.md`);
+  });
+
+  test("files outside deleted directory are not affected", async () => {
+    const keepFile = join(ctx.watchDir, "keeper.md");
+    const killDir = join(ctx.watchDir, "killme");
+    await mkdir(killDir, { recursive: true });
+    await writeFile(keepFile, "# Keep\n");
+    await writeFile(join(killDir, "gone.md"), "# Gone\n");
+
+    await waitForFile(client, username, `${collectionName}/keeper.md`);
+    await waitForFile(client, username, `${collectionName}/killme/gone.md`);
+
+    await rm(killDir, { recursive: true });
+
+    await waitForDelete(client, username, `${collectionName}/killme/gone.md`);
+
+    // keeper.md should still exist
+    const content = await client.getFile(username, `${collectionName}/keeper.md`);
+    expect(content).toBe("# Keep\n");
   });
 });
 

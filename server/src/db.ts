@@ -170,6 +170,18 @@ export function listContributors(): Contributor[] {
   return rows.map((r) => ({ ...r, is_admin: Boolean(r.is_admin) }));
 }
 
+export function deleteContributor(username: string): boolean {
+  const d = getDb();
+  const exists = d
+    .prepare("SELECT 1 FROM contributors WHERE username = ?")
+    .get(username);
+  if (!exists) return false;
+  d.prepare("DELETE FROM items WHERE contributor = ?").run(username);
+  d.prepare("DELETE FROM api_keys WHERE contributor = ?").run(username);
+  d.prepare("DELETE FROM contributors WHERE username = ?").run(username);
+  return true;
+}
+
 export function hasAnyContributor(): boolean {
   const row = getDb()
     .prepare("SELECT COUNT(*) as count FROM contributors")

@@ -4,7 +4,8 @@ import type { CollectionConfig } from "../config.js";
 
 export type FileEvent =
   | { type: "add" | "change"; serverPath: string; localPath: string }
-  | { type: "unlink"; serverPath: string; localPath: string };
+  | { type: "unlink"; serverPath: string; localPath: string }
+  | { type: "unlinkDir"; localPath: string; collectionName: string };
 
 export type EventHandler = (event: FileEvent) => void;
 
@@ -82,6 +83,15 @@ export function createWatcher(
   watcher.on("unlink", (path) => {
     const sp = toServerPath(path);
     if (sp) onEvent({ type: "unlink", serverPath: sp, localPath: path });
+  });
+
+  watcher.on("unlinkDir", (path) => {
+    for (const [collectionPath, name] of collectionMap) {
+      if (path.startsWith(collectionPath + "/") || path === collectionPath) {
+        onEvent({ type: "unlinkDir", localPath: path, collectionName: name });
+        return;
+      }
+    }
   });
 
   return watcher;

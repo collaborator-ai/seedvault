@@ -8,6 +8,7 @@ import {
 	getInvite,
 	markInviteUsed,
 	getContributor,
+	deleteContributor,
 	validateUsername,
 	validatePath,
 	hasAnyContributor,
@@ -183,6 +184,28 @@ export function createApp(): Hono {
 				createdAt: b.created_at,
 			})),
 		});
+	});
+
+	// --- Delete Contributor (admin only) ---
+
+	authed.delete("/v1/contributors/:username", (c) => {
+		const { contributor } = getAuthCtx(c);
+		const target = c.req.param("username");
+
+		if (!contributor.is_admin) {
+			return c.json({ error: "Only the admin can delete contributors" }, 403);
+		}
+
+		if (target === contributor.username) {
+			return c.json({ error: "Cannot delete yourself" }, 400);
+		}
+
+		const found = deleteContributor(target);
+		if (!found) {
+			return c.json({ error: "Contributor not found" }, 404);
+		}
+
+		return c.body(null, 204);
 	});
 
 	// --- File Write ---

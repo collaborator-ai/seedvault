@@ -27,6 +27,8 @@ export class Syncer {
   private collections: CollectionConfig[];
   private queue: RetryQueue;
   private log: (msg: string) => void;
+  private writeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private dirSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(opts: SyncerOptions) {
     this.client = opts.client;
@@ -244,31 +246,104 @@ export class Syncer {
 
   /**
    * Handle a file event from the watcher.
+   * Writes are debounced (300ms) so partial saves don't trigger
+   * multiple uploads. Unlinks fire immediately.
    */
   async handleEvent(event: FileEvent): Promise<void> {
     if (event.type === "add" || event.type === "change") {
-      const [content, s] = await Promise.all([
-        readFile(event.localPath, "utf-8"),
-        stat(event.localPath),
-      ]);
-      const originCtime = new Date(resolveOriginCtime(s.birthtimeMs, s.mtimeMs)).toISOString();
-      const originMtime = new Date(s.mtimeMs).toISOString();
-      this.log(`PUT ${event.serverPath} (${content.length} bytes)`);
-      this.queue.enqueue({
-        type: "put",
-        username: this.username,
-        serverPath: event.serverPath,
-        content,
-        queuedAt: new Date().toISOString(),
-        originCtime,
-        originMtime,
-      });
+      const key = event.serverPath;
+      const existing = this.writeTimers.get(key);
+      if (existing) clearTimeout(existing);
+      this.writeTimers.set(key, setTimeout(() => {
+        this.writeTimers.delete(key);
+        this.syncWrite(event.serverPath, event.localPath);
+      }, 300));
     } else if (event.type === "unlink") {
+      // Cancel any pending write for this file
+      const pending = this.writeTimers.get(event.serverPath);
+      if (pending) {
+        clearTimeout(pending);
+        this.writeTimers.delete(event.serverPath);
+      }
       this.log(`DELETE ${event.serverPath}`);
       this.queue.enqueue({
         type: "delete",
         username: this.username,
         serverPath: event.serverPath,
+        content: null,
+        queuedAt: new Date().toISOString(),
+        originCtime: null,
+        originMtime: null,
+      });
+    } else if (event.type === "unlinkDir") {
+      // Debounce directory deletions — multiple unlinkDir events
+      // may fire for nested directories removed at once
+      const key = event.collectionName;
+      const existing = this.dirSyncTimers.get(key);
+      if (existing) clearTimeout(existing);
+      this.dirSyncTimers.set(key, setTimeout(() => {
+        this.dirSyncTimers.delete(key);
+        const collection = this.collections.find((c) => c.name === key);
+        if (collection) {
+          this.reconcileCollection(collection).catch((e) => {
+            this.log(`Reconcile failed for '${key}': ${(e as Error).message}`);
+          });
+        }
+      }, 500));
+    }
+  }
+
+  private async syncWrite(serverPath: string, localPath: string): Promise<void> {
+    try {
+      const [content, s] = await Promise.all([
+        readFile(localPath, "utf-8"),
+        stat(localPath),
+      ]);
+      const originCtime = new Date(resolveOriginCtime(s.birthtimeMs, s.mtimeMs)).toISOString();
+      const originMtime = new Date(s.mtimeMs).toISOString();
+      this.log(`PUT ${serverPath} (${content.length} bytes)`);
+      this.queue.enqueue({
+        type: "put",
+        username: this.username,
+        serverPath,
+        content,
+        queuedAt: new Date().toISOString(),
+        originCtime,
+        originMtime,
+      });
+    } catch (e: unknown) {
+      // File may have been deleted between event and debounce firing
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return;
+      throw e;
+    }
+  }
+
+  /**
+   * Diff a collection's server files against local files and delete
+   * any server files that no longer exist locally.
+   */
+  private async reconcileCollection(collection: CollectionConfig): Promise<void> {
+    this.log(`Reconciling '${collection.name}' after directory change...`);
+    const { files: serverFiles } = await this.client.listFiles(
+      this.username,
+      collection.name + "/"
+    );
+    if (serverFiles.length === 0) return;
+
+    const localFiles = await walkMd(collection.path).catch(() => [] as LocalFile[]);
+    const localServerPaths = new Set(
+      localFiles.map((f) => `${collection.name}/${toPosixPath(relative(collection.path, f.path))}`)
+    );
+
+    const orphans = serverFiles.filter((f) => !localServerPaths.has(f.path));
+    if (orphans.length === 0) return;
+
+    this.log(`  Deleting ${orphans.length} orphaned file(s)`);
+    for (const f of orphans) {
+      this.queue.enqueue({
+        type: "delete",
+        username: this.username,
+        serverPath: f.path,
         content: null,
         queuedAt: new Date().toISOString(),
         originCtime: null,
@@ -280,6 +355,10 @@ export class Syncer {
   /** Stop retry timers. Pending ops remain in memory for process lifetime only. */
   stop(): void {
     this.queue.stop();
+    for (const timer of this.writeTimers.values()) clearTimeout(timer);
+    this.writeTimers.clear();
+    for (const timer of this.dirSyncTimers.values()) clearTimeout(timer);
+    this.dirSyncTimers.clear();
   }
 
   /** Number of pending queued operations */

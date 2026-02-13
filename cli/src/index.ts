@@ -14,6 +14,7 @@ import { cat } from "./commands/cat.js";
 import { grep } from "./commands/grep.js";
 import { contributors } from "./commands/contributors.js";
 import { invite } from "./commands/invite.js";
+import { kick } from "./commands/kick.js";
 import { upgrade } from "./commands/update.js";
 
 const USAGE = `
@@ -46,6 +47,7 @@ Files:
 Vault:
   contributors                  List all contributors
   invite                        Generate an invite code (admin only)
+  kick <username>               Remove a contributor and their files (admin only)
 
 Maintenance:
   update                        Update CLI to latest version
@@ -92,6 +94,8 @@ async function main(): Promise<void> {
         return await contributors();
       case "invite":
         return await invite();
+      case "kick":
+        return await kick(args);
       case "update":
         return await upgrade();
       default:

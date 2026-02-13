@@ -425,6 +425,7 @@
 		const { marked } = await import("https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js");
 		const matter = (await import("https://cdn.jsdelivr.net/npm/gray-matter@4.0.3/+esm")).default;
 		const DOMPurify = (await import("https://cdn.jsdelivr.net/npm/dompurify@3.0.9/+esm")).default;
+		const morphdom = (await import("https://cdn.jsdelivr.net/npm/morphdom@2.7.4/+esm")).default;
 
 		function renderMarkdown(raw) {
 			if (typeof raw !== "string") return "";
@@ -487,6 +488,15 @@
 		const savedContributor = localStorage.getItem("sv-contributor") || "";
 		const savedFile = localStorage.getItem("sv-file") || "";
 
+		function getExpandedKeys() {
+			try {
+				return new Set(JSON.parse(localStorage.getItem("sv-expanded") || "[]"));
+			} catch { return new Set(); }
+		}
+		function saveExpandedKeys(keys) {
+			localStorage.setItem("sv-expanded", JSON.stringify([...keys]));
+		}
+
 		function buildTree(fileEntries) {
 			const root = {};
 			for (const f of fileEntries) {
@@ -531,7 +541,7 @@
 			return count;
 		}
 
-		function renderTree(node, parentUl, username, depth) {
+		function renderTree(node, parentUl, username, depth, pathPrefix = "") {
 			const keys = Object.keys(node).filter((k) => k !== "__file").sort((a, b) => {
 				const aDir = Object.keys(node[a]).some((k) => k !== "__file");
 				const bDir = Object.keys(node[b]).some((k) => k !== "__file");
@@ -543,8 +553,10 @@
 			});
 			for (const key of keys) {
 				const child = node[key];
+				const nodePath = pathPrefix ? pathPrefix + "/" + key : key;
 				const isFile = child.__file && Object.keys(child).length === 1;
 				const li = document.createElement("li");
+				li.dataset.key = nodePath;
 				const row = document.createElement("div");
 				row.className = "tree-row";
 				row.style.paddingLeft = (depth * 12 + 8) + "px";
@@ -554,16 +566,17 @@
 					row.innerHTML = '<span class="name"><span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + key + '</span><span class="ctime">' + formatCtime(ctime) + '</span>';
 					row.dataset.path = child.__file.path;
 					row.dataset.contributor = username;
-					row.onclick = () => loadContent(username, child.__file.path, row);
+					row.dataset.action = "open";
 				} else {
 					const sub = document.createElement("ul");
 					const fileCount = countFiles(child);
-					row.innerHTML = '<span class="name"><span class="arrow">&#9660;</span><i class="ph ph-folder"></i> ' + key + ' <span style="opacity:0.5">(' + fileCount + ')</span></span>';
-					row.onclick = () => {
-						sub.classList.toggle("collapsed");
-						row.querySelector(".arrow").innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
-					};
-					renderTree(child, sub, username, depth + 1);
+					const expanded = getExpandedKeys().has(username + ":" + nodePath);
+					const arrow = expanded ? "&#9660;" : "&#9654;";
+					if (!expanded) sub.classList.add("collapsed");
+					row.innerHTML = '<span class="name"><span class="arrow">' + arrow + '</span><i class="ph ph-folder"></i> ' + key + ' <span style="opacity:0.5">(' + fileCount + ')</span></span>';
+					row.dataset.action = "toggle";
+					row.dataset.toggleKey = username + ":" + nodePath;
+					renderTree(child, sub, username, depth + 1, nodePath);
 					li.appendChild(row);
 					li.appendChild(sub);
 					parentUl.appendChild(li);
@@ -624,9 +637,46 @@
 			);
 		}
 
+		filesEl.addEventListener("click", (e) => {
+			const row = e.target.closest(".tree-row");
+			if (!row) return;
+			const action = row.dataset.action;
+			if (action === "open") {
+				loadContent(row.dataset.contributor, row.dataset.path, row);
+			} else if (action === "toggle") {
+				const sub = row.nextElementSibling;
+				if (!sub) return;
+				sub.classList.toggle("collapsed");
+				const arrow = row.querySelector(".arrow");
+				if (arrow) arrow.innerHTML = sub.classList.contains("collapsed") ? "&#9654;" : "&#9660;";
+				const keys = getExpandedKeys();
+				const toggleKey = row.dataset.toggleKey;
+				if (toggleKey) {
+					if (sub.classList.contains("collapsed")) keys.delete(toggleKey);
+					else keys.add(toggleKey);
+					saveExpandedKeys(keys);
+				}
+			} else if (action === "contributor") {
+				const sub = row.nextElementSibling;
+				if (!sub) return;
+				const collapsed = sub.classList.contains("collapsed");
+				const keys = getExpandedKeys();
+				const toggleKey = "contributor:" + row.dataset.contributor;
+				if (collapsed) {
+					sub.classList.remove("collapsed");
+					row.querySelector(".arrow").innerHTML = "&#9660;";
+					keys.add(toggleKey);
+				} else {
+					sub.classList.add("collapsed");
+					row.querySelector(".arrow").innerHTML = "&#9654;";
+					keys.delete(toggleKey);
+				}
+				saveExpandedKeys(keys);
+			}
+		});
+
 		async function loadContributorFiles(username, sub, opts = {}) {
 			const silent = !!opts.silent;
-			sub.innerHTML = "";
 			if (!silent) status("Loading files...");
 			const { files } = await (await api("/v1/files?prefix=" + encodeURIComponent(username + "/"))).json();
 			const prefix = username + "/";
@@ -634,10 +684,20 @@
 				...f,
 				path: f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path,
 			})));
-			renderTree(tree, sub, username, 1);
+			const tmp = document.createElement("ul");
+			renderTree(tree, tmp, username, 1);
+			if (sub.hasChildNodes()) {
+				morphdom(sub, tmp, {
+					childrenOnly: true,
+					getNodeKey(node) {
+						return node.dataset?.key || "";
+					},
+				});
+			} else {
+				sub.append(...tmp.childNodes);
+			}
 			markActiveRow();
 			if (!silent) status(files.length + " file(s)");
-			// Update contributor row with file count
 			const row = sub.parentElement && sub.parentElement.querySelector(".tree-row");
 			if (row) {
 				const arrow = row.querySelector(".arrow").outerHTML;
@@ -650,6 +710,7 @@
 			contentEl.innerHTML = "";
 			status("Loading contributors...");
 			const { contributors } = await (await api("/v1/contributors")).json();
+			const expandedKeys = getExpandedKeys();
 
 			for (const b of contributors) {
 				const li = document.createElement("li");
@@ -658,40 +719,28 @@
 				row.style.paddingLeft = "8px";
 				const sub = document.createElement("ul");
 				sub.dataset.contributor = b.username;
-				sub.dataset.loaded = "false";
-				let loaded = false;
-				row.innerHTML = '<span class="name"><span class="arrow">&#9654;</span><i class="ph ph-user"></i> ' + b.username + '</span>';
-				row.onclick = async () => {
-					const collapsed = sub.classList.contains("collapsed") || !sub.hasChildNodes();
-					if (collapsed) {
-						sub.classList.remove("collapsed");
-						row.querySelector(".arrow").innerHTML = "&#9660;";
-						if (!loaded) {
-							loaded = true;
-							sub.dataset.loaded = "true";
-							await loadContributorFiles(b.username, sub);
-						}
-					} else {
-						sub.classList.add("collapsed");
-						row.querySelector(".arrow").innerHTML = "&#9654;";
-					}
-				};
+				sub.dataset.loaded = "true";
+				const expanded = expandedKeys.has("contributor:" + b.username);
+				if (!expanded) sub.classList.add("collapsed");
+				const arrow = expanded ? "&#9660;" : "&#9654;";
+				row.innerHTML = '<span class="name"><span class="arrow">' + arrow + '</span><i class="ph ph-user"></i> ' + b.username + '</span>';
+				row.dataset.action = "contributor";
+				row.dataset.contributor = b.username;
 				li.appendChild(row);
 				li.appendChild(sub);
 				filesEl.appendChild(li);
-
-				if (b.username === savedContributor) {
-					sub.classList.remove("collapsed");
-					row.querySelector(".arrow").innerHTML = "&#9660;";
-					loaded = true;
-					sub.dataset.loaded = "true";
-					await loadContributorFiles(b.username, sub);
-					if (savedFile) {
-						const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
-						if (match) await loadContent(b.username, savedFile, match);
-					}
-				}
 			}
+
+			await Promise.all(contributors.map((b) => {
+				const sub = getLoadedContributorList(b.username);
+				return sub ? loadContributorFiles(b.username, sub, { silent: true }) : null;
+			}));
+
+			if (savedFile && savedContributor) {
+				const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
+				if (match) await loadContent(savedContributor, savedFile, match);
+			}
+
 			status(contributors.length + " contributor(s)");
 		}
 

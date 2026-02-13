@@ -11,6 +11,8 @@ export interface SeedvaultClient {
   createInvite(): Promise<InviteResponse>;
   /** GET /v1/contributors */
   listContributors(): Promise<ContributorsResponse>;
+  /** DELETE /v1/contributors/:username */
+  deleteContributor(username: string): Promise<void>;
   /** PUT /v1/files/:username/* */
   putFile(username: string, path: string, content: string, opts?: PutFileOptions): Promise<FileWriteResponse>;
   /** DELETE /v1/files/:username/* */
@@ -171,6 +173,10 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     async listContributors(): Promise<ContributorsResponse> {
       const res = await request("GET", "/v1/contributors");
       return res.json();
+    },
+
+    async deleteContributor(username: string): Promise<void> {
+      await request("DELETE", `/v1/contributors/${encodeURIComponent(username)}`);
     },
 
     async putFile(username: string, path: string, content: string, opts?: PutFileOptions): Promise<FileWriteResponse> {
