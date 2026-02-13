@@ -74,6 +74,33 @@
 			cursor: pointer;
 		}
 
+		#menu-toggle {
+			display: none;
+			font-size: 18px;
+			padding: 4px 10px;
+		}
+
+		#nav-close {
+			display: none;
+			float: right;
+			border: none;
+			font-size: 16px;
+			padding: 0 4px;
+			line-height: 1;
+		}
+
+		#backdrop {
+			display: none;
+			position: fixed;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.4);
+			z-index: 90;
+		}
+
+		#backdrop.visible {
+			display: block;
+		}
+
 		.grid {
 			display: flex;
 			gap: 0;
@@ -103,8 +130,32 @@
 		}
 
 		@media (max-width: 600px) {
+			#menu-toggle {
+				display: block;
+			}
+
+			#nav-close {
+				display: block;
+			}
+
 			.grid {
 				flex-direction: column;
+				position: relative;
+			}
+
+			#nav {
+				position: fixed;
+				top: 0;
+				left: -100vw;
+				width: 100vw !important;
+				height: 100%;
+				z-index: 100;
+				background: Canvas;
+				transition: transform 0.2s ease;
+			}
+
+			#nav.open {
+				transform: translateX(100vw);
 			}
 
 			.grid>.panel:first-child {
@@ -349,12 +400,14 @@
 
 <body>
 	<div class="top">
+		<button id="menu-toggle" aria-label="Toggle navigation">&#9776;</button>
 		<input id="token" type="password" placeholder="API key (&quot;sv_...&quot;)" />
 		<button id="connect">Load</button>
 	</div>
+	<div id="backdrop"></div>
 	<div class="grid">
 		<section id="nav" class="panel" style="width:220px">
-			<div class="panel-head">Files</div>
+			<div class="panel-head">Files<button id="nav-close" aria-label="Close navigation">&times;</button></div>
 			<div class="panel-body" id="nav-body" tabindex="0">
 				<ul id="files" class="tree"></ul>
 			</div>
@@ -394,6 +447,22 @@
 		const filesEl = $("files");
 		const contentEl = $("content");
 		const statusEl = $("status");
+		const backdropEl = $("backdrop");
+		const menuToggleEl = $("menu-toggle");
+
+		function closeSidebar() {
+			$("nav").classList.remove("open");
+			backdropEl.classList.remove("visible");
+		}
+
+		menuToggleEl.addEventListener("click", () => {
+			const nav = $("nav");
+			nav.classList.toggle("open");
+			backdropEl.classList.toggle("visible", nav.classList.contains("open"));
+		});
+
+		backdropEl.addEventListener("click", closeSidebar);
+		$("nav-close").addEventListener("click", closeSidebar);
 
 		let token = localStorage.getItem("sv-token") || "";
 		tokenEl.value = token;
@@ -632,6 +701,7 @@
 			row.scrollIntoView({ block: "nearest", behavior: "smooth" });
 			localStorage.setItem("sv-contributor", username);
 			localStorage.setItem("sv-file", path);
+			closeSidebar();
 			status("Loading " + path + "...");
 			const res = await api("/v1/sh", {
 				method: "POST",
