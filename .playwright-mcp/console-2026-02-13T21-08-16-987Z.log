@@ -1,0 +1,15 @@
+[      58ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/favicon.ico:0
+[   20766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   32766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   44766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   56765ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   68766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   80766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   85026ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/favicon.ico:0
+[   96766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[  108766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[  120766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[  132766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[  144765ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[  156766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[  168766ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0

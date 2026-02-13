@@ -1,0 +1,2 @@
+[     889ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/favicon.ico:0
+[   22118ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/favicon.ico:0

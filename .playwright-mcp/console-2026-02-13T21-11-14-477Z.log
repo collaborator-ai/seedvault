@@ -1,0 +1,7 @@
+[      55ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3000/favicon.ico:0
+[   11276ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   23276ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   35276ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   51276ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   71276ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
+[   91276ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:3000/v1/events?token=sv_acb8919fa2917eb888cd3684a774122f:0
