@@ -9,11 +9,15 @@ import {
 	markInviteUsed,
 	getContributor,
 	validateUsername,
+	validatePath,
 	hasAnyContributor,
 	listContributors,
-	upsertFileMetadata,
-	deleteFileMetadata,
-	listFileMetadata,
+	upsertItem,
+	getItem,
+	listItems,
+	deleteItem,
+	searchItems,
+	ItemTooLargeError,
 } from "./db.js";
 import {
 	generateToken,
@@ -21,18 +25,7 @@ import {
 	authMiddleware,
 	getAuthCtx,
 } from "./auth.js";
-import {
-	validatePath,
-	writeFileAtomic,
-	deleteFile,
-	listFiles,
-	ensureContributorDir,
-	FileNotFoundError,
-	FileTooLargeError,
-} from "./storage.js";
 import { broadcast, addClient, removeClient } from "./sse.js";
-import * as qmd from "./qmd.js";
-import { executeCommand, ShellValidationError } from "./shell.js";
 
 const uiPath = resolve(import.meta.dirname, "index.html");
 const isDev = process.env.NODE_ENV !== "production";
@@ -42,7 +35,9 @@ const uiHtmlCached = readFileSync(uiPath, "utf-8");
  * Extract username and file path from a /v1/files/* request path.
  * "/v1/files/yiliu/notes/seedvault.md" → { username: "yiliu", filePath: "notes/seedvault.md" }
  */
-function extractFileInfo(reqPath: string): { username: string; filePath: string } | null {
+function extractFileInfo(
+	reqPath: string
+): { username: string; filePath: string } | null {
 	const raw = reqPath.replace("/v1/files/", "");
 	let decoded: string;
 	try {
@@ -58,7 +53,7 @@ function extractFileInfo(reqPath: string): { username: string; filePath: string 
 	};
 }
 
-export function createApp(storageRoot: string): Hono {
+export function createApp(): Hono {
 	const app = new Hono();
 
 	app.get("/", (c) => {
@@ -76,7 +71,11 @@ export function createApp(storageRoot: string): Hono {
 	app.post("/v1/signup", async (c) => {
 		const body = await c.req.json<{ name?: string; invite?: string }>();
 
-		if (!body.name || typeof body.name !== "string" || body.name.trim().length === 0) {
+		if (
+			!body.name ||
+			typeof body.name !== "string" ||
+			body.name.trim().length === 0
+		) {
 			return c.json({ error: "name is required" }, 400);
 		}
 
@@ -89,7 +88,6 @@ export function createApp(storageRoot: string): Hono {
 
 		const isFirstUser = !hasAnyContributor();
 
-		// Validate invite (required unless first user)
 		if (!isFirstUser) {
 			if (!body.invite) {
 				return c.json({ error: "Invite code is required" }, 400);
@@ -99,29 +97,29 @@ export function createApp(storageRoot: string): Hono {
 				return c.json({ error: "Invalid invite code" }, 400);
 			}
 			if (invite.used_at) {
-				return c.json({ error: "Invite code has already been used" }, 400);
+				return c.json(
+					{ error: "Invite code has already been used" },
+					400
+				);
 			}
 		}
 
-		// Check username uniqueness
 		if (getContributor(username)) {
-			return c.json({ error: "A contributor with that username already exists" }, 409);
+			return c.json(
+				{ error: "A contributor with that username already exists" },
+				409
+			);
 		}
 
-		// Create contributor
 		const contributor = createContributor(username, isFirstUser);
-		await ensureContributorDir(storageRoot, contributor.username);
 
-		// Register as QMD collection
-		qmd.addCollection(storageRoot, contributor).catch((e) =>
-			console.error("Failed to register QMD collection:", e)
+		const rawToken = generateToken();
+		createApiKey(
+			hashToken(rawToken),
+			`${username}-default`,
+			contributor.username
 		);
 
-		// Create token
-		const rawToken = generateToken();
-		createApiKey(hashToken(rawToken), `${username}-default`, contributor.username);
-
-		// Mark invite as used
 		if (!isFirstUser && body.invite) {
 			markInviteUsed(body.invite, contributor.username);
 		}
@@ -159,7 +157,10 @@ export function createApp(storageRoot: string): Hono {
 		const { contributor } = getAuthCtx(c);
 
 		if (!contributor.is_operator) {
-			return c.json({ error: "Only the operator can generate invite codes" }, 403);
+			return c.json(
+				{ error: "Only the operator can generate invite codes" },
+				403
+			);
 		}
 
 		const invite = createInvite(contributor.username);
@@ -184,33 +185,7 @@ export function createApp(storageRoot: string): Hono {
 		});
 	});
 
-	// --- Shell passthrough ---
-
-	authed.post("/v1/sh", async (c) => {
-		const body = await c.req.json<{ cmd?: string }>();
-		if (!body.cmd || typeof body.cmd !== "string") {
-			return c.json({ error: "cmd is required" }, 400);
-		}
-
-		try {
-			const result = await executeCommand(body.cmd, storageRoot);
-			return new Response(result.stdout, {
-				status: 200,
-				headers: {
-					"Content-Type": "text/plain; charset=utf-8",
-					"X-Exit-Code": String(result.exitCode),
-					"X-Stderr": encodeURIComponent(result.stderr),
-				},
-			});
-		} catch (e) {
-			if (e instanceof ShellValidationError) {
-				return c.json({ error: e.message }, 400);
-			}
-			throw e;
-		}
-	});
-
-	// --- File Write (new path) ---
+	// --- File Write ---
 
 	authed.put("/v1/files/*", async (c) => {
 		const { contributor } = getAuthCtx(c);
@@ -221,7 +196,10 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		if (contributor.username !== parsed.username) {
-			return c.json({ error: "You can only write to your own contributor" }, 403);
+			return c.json(
+				{ error: "You can only write to your own contributor" },
+				403
+			);
 		}
 
 		if (!getContributor(parsed.username)) {
@@ -240,37 +218,38 @@ export function createApp(storageRoot: string): Hono {
 		const originMtime = c.req.header("X-Origin-Mtime") || now;
 
 		try {
-			const result = await writeFileAtomic(storageRoot, parsed.username, parsed.filePath, content);
-
-			const meta = upsertFileMetadata(parsed.username, parsed.filePath, originCtime, originMtime);
+			const item = upsertItem(
+				parsed.username,
+				parsed.filePath,
+				content,
+				originCtime,
+				originMtime
+			);
 
 			broadcast("file_updated", {
 				contributor: parsed.username,
-				path: result.path,
-				size: result.size,
-				modifiedAt: result.modifiedAt,
+				path: item.path,
+				size: Buffer.byteLength(item.content),
+				modifiedAt: item.modified_at,
 			});
-
-			qmd.triggerUpdate();
 
 			return c.json({
-				...result,
-				originCtime: meta.origin_ctime,
-				originMtime: meta.origin_mtime,
-				serverCreatedAt: meta.server_created_at,
-				serverModifiedAt: meta.server_modified_at,
+				path: item.path,
+				size: Buffer.byteLength(item.content),
+				createdAt: item.created_at,
+				modifiedAt: item.modified_at,
 			});
 		} catch (e) {
-			if (e instanceof FileTooLargeError) {
+			if (e instanceof ItemTooLargeError) {
 				return c.json({ error: e.message }, 413);
 			}
 			throw e;
 		}
 	});
 
-	// --- File Delete (new path) ---
+	// --- File Delete ---
 
-	authed.delete("/v1/files/*", async (c) => {
+	authed.delete("/v1/files/*", (c) => {
 		const { contributor } = getAuthCtx(c);
 		const parsed = extractFileInfo(c.req.path);
 
@@ -279,7 +258,10 @@ export function createApp(storageRoot: string): Hono {
 		}
 
 		if (contributor.username !== parsed.username) {
-			return c.json({ error: "You can only delete from your own contributor" }, 403);
+			return c.json(
+				{ error: "You can only delete from your own contributor" },
+				403
+			);
 		}
 
 		const pathError = validatePath(parsed.filePath);
@@ -287,58 +269,75 @@ export function createApp(storageRoot: string): Hono {
 			return c.json({ error: pathError }, 400);
 		}
 
-		try {
-			await deleteFile(storageRoot, parsed.username, parsed.filePath);
-			deleteFileMetadata(parsed.username, parsed.filePath);
-
-			broadcast("file_deleted", {
-				contributor: parsed.username,
-				path: parsed.filePath,
-			});
-
-			qmd.triggerUpdate();
-
-			return c.body(null, 204);
-		} catch (e) {
-			if (e instanceof FileNotFoundError) {
-				return c.json({ error: "File not found" }, 404);
-			}
-			throw e;
+		const found = deleteItem(parsed.username, parsed.filePath);
+		if (!found) {
+			return c.json({ error: "File not found" }, 404);
 		}
+
+		broadcast("file_deleted", {
+			contributor: parsed.username,
+			path: parsed.filePath,
+		});
+
+		return c.body(null, 204);
 	});
 
-	// --- Structured File Listing (for syncer) ---
+	// --- File Listing ---
 
-	authed.get("/v1/files", async (c) => {
+	authed.get("/v1/files", (c) => {
 		const prefix = c.req.query("prefix") || "";
 		if (!prefix) {
-			return c.json({ error: "prefix query parameter is required" }, 400);
+			return c.json(
+				{ error: "prefix query parameter is required" },
+				400
+			);
 		}
 
-		// Extract username from prefix (first path segment)
 		const slashIdx = prefix.indexOf("/");
-		const username = slashIdx === -1 ? prefix : prefix.slice(0, slashIdx);
-		const subPrefix = slashIdx === -1 ? undefined : prefix.slice(slashIdx + 1) || undefined;
+		const username =
+			slashIdx === -1 ? prefix : prefix.slice(0, slashIdx);
+		const subPrefix =
+			slashIdx === -1
+				? undefined
+				: prefix.slice(slashIdx + 1) || undefined;
 
 		if (!getContributor(username)) {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const files = await listFiles(storageRoot, username, subPrefix);
-		const metaMap = listFileMetadata(username, subPrefix);
-		// Return full paths (username-prefixed)
+		const items = listItems(username, subPrefix);
 		return c.json({
-			files: files.map((f) => {
-				const meta = metaMap.get(f.path);
-				return {
-					...f,
-					path: `${username}/${f.path}`,
-					originCtime: meta?.origin_ctime,
-					originMtime: meta?.origin_mtime,
-					serverCreatedAt: meta?.server_created_at,
-					serverModifiedAt: meta?.server_modified_at,
-				};
-			}),
+			files: items.map((f) => ({
+				path: `${username}/${f.path}`,
+				size: f.size,
+				createdAt: f.created_at,
+				modifiedAt: f.modified_at,
+			})),
+		});
+	});
+
+	// --- File Read ---
+
+	authed.get("/v1/files/*", (c) => {
+		const parsed = extractFileInfo(c.req.path);
+
+		if (!parsed) {
+			return c.json({ error: "Invalid file path" }, 400);
+		}
+
+		const item = getItem(parsed.username, parsed.filePath);
+		if (!item) {
+			return c.json({ error: "File not found" }, 404);
+		}
+
+		return new Response(item.content, {
+			status: 200,
+			headers: {
+				"Content-Type": "text/markdown; charset=utf-8",
+				"X-Created-At": item.created_at,
+				"X-Modified-At": item.modified_at,
+				"X-Size": String(Buffer.byteLength(item.content)),
+			},
 		});
 	});
 
@@ -352,14 +351,14 @@ export function createApp(storageRoot: string): Hono {
 				ctrl = controller;
 				addClient(controller);
 
-				// Send initial connected event
 				const msg = `event: connected\ndata: {}\n\n`;
 				controller.enqueue(new TextEncoder().encode(msg));
 
-				// Send keepalive comment every 30s to prevent proxy timeouts
 				heartbeat = setInterval(() => {
 					try {
-						controller.enqueue(new TextEncoder().encode(":keepalive\n\n"));
+						controller.enqueue(
+							new TextEncoder().encode(":keepalive\n\n")
+						);
 					} catch {
 						clearInterval(heartbeat);
 					}
@@ -380,9 +379,9 @@ export function createApp(storageRoot: string): Hono {
 		});
 	});
 
-	// --- Search (proxy to QMD) ---
+	// --- Search (FTS5) ---
 
-	authed.get("/v1/search", async (c) => {
+	authed.get("/v1/search", (c) => {
 		const q = c.req.query("q");
 		if (!q) {
 			return c.json({ error: "q parameter is required" }, 400);
@@ -391,17 +390,11 @@ export function createApp(storageRoot: string): Hono {
 		const contributorParam = c.req.query("contributor") || undefined;
 		const limit = parseInt(c.req.query("limit") || "10", 10);
 
-		// Resolve contributor param to QMD collection name
-		let collectionName: string | undefined;
-		if (contributorParam) {
-			const contributor = getContributor(contributorParam);
-			if (!contributor) {
-				return c.json({ error: "Contributor not found" }, 404);
-			}
-			collectionName = contributor.username;
+		if (contributorParam && !getContributor(contributorParam)) {
+			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const results = await qmd.search(q, { collection: collectionName, limit });
+		const results = searchItems(q, contributorParam, limit);
 		return c.json({ results });
 	});
 

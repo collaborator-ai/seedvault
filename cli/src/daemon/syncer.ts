@@ -7,6 +7,13 @@ import { RetryQueue } from "./queue.js";
 
 const SYNC_CONCURRENCY = 10;
 
+/**
+ * Resolve origin ctime: returns mtime when birthtimeMs is 0 (Linux/Docker bug).
+ */
+function resolveOriginCtime(birthtimeMs: number, mtimeMs: number): number {
+  return birthtimeMs > 0 ? birthtimeMs : mtimeMs;
+}
+
 export interface SyncerOptions {
   client: SeedvaultClient;
   username: string;
@@ -133,8 +140,7 @@ export class Syncer {
 
         const serverEntry = serverMap.get(serverPath);
         if (serverEntry) {
-          const serverMod = serverEntry.originMtime || serverEntry.modifiedAt;
-          const serverDate = new Date(serverMod).getTime();
+          const serverDate = new Date(serverEntry.modifiedAt).getTime();
           const localDate = localFile.mtimeMs;
           if (localDate <= serverDate) {
             skipped++;
@@ -143,7 +149,7 @@ export class Syncer {
         }
 
         const content = await readFile(localFile.path, "utf-8");
-        const originCtime = new Date(localFile.birthtimeMs).toISOString();
+        const originCtime = new Date(resolveOriginCtime(localFile.birthtimeMs, localFile.mtimeMs)).toISOString();
         const originMtime = new Date(localFile.mtimeMs).toISOString();
         toUpload.push({ serverPath, content, originCtime, originMtime });
       }
@@ -245,7 +251,7 @@ export class Syncer {
         readFile(event.localPath, "utf-8"),
         stat(event.localPath),
       ]);
-      const originCtime = new Date(s.birthtimeMs).toISOString();
+      const originCtime = new Date(resolveOriginCtime(s.birthtimeMs, s.mtimeMs)).toISOString();
       const originMtime = new Date(s.mtimeMs).toISOString();
       this.log(`PUT ${event.serverPath} (${content.length} bytes)`);
       this.queue.enqueue({

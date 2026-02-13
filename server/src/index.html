@@ -512,7 +512,7 @@
 		}
 
 		function getNewestCtime(node) {
-			if (node.__file) return node.__file.originCtime || node.__file.serverCreatedAt || "";
+			if (node.__file) return node.__file.createdAt || "";
 			let newest = "";
 			for (const key of Object.keys(node)) {
 				if (key === "__file") continue;
@@ -550,7 +550,7 @@
 				row.style.paddingLeft = (depth * 12 + 8) + "px";
 
 				if (isFile) {
-					const ctime = child.__file.originCtime || child.__file.serverCreatedAt || "";
+					const ctime = child.__file.createdAt || "";
 					row.innerHTML = '<span class="name"><span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + key + '</span><span class="ctime">' + formatCtime(ctime) + '</span>';
 					row.dataset.path = child.__file.path;
 					row.dataset.contributor = username;
@@ -703,11 +703,8 @@
 			localStorage.setItem("sv-file", path);
 			closeSidebar();
 			status("Loading " + path + "...");
-			const res = await api("/v1/sh", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ cmd: 'cat "' + username + "/" + path + '"' }),
-			});
+			const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+			const res = await api("/v1/files/" + encodeURIComponent(username) + "/" + encodedPath);
 			const text = await res.text();
 			contentEl.innerHTML = renderMarkdown(text);
 			contentEl.parentElement.scrollTop = 0;
@@ -751,11 +748,8 @@
 				scheduleContributorReload(contributor);
 				// If this file is currently open, reload its content
 				if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
-					api("/v1/sh", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ cmd: 'cat "' + contributor + "/" + path + '"' }),
-					})
+					const encodedPath = path.split("/").map(encodeURIComponent).join("/");
+					api("/v1/files/" + encodeURIComponent(contributor) + "/" + encodedPath)
 						.then((res) => res.text())
 						.then((text) => { contentEl.innerHTML = renderMarkdown(text); });
 				}

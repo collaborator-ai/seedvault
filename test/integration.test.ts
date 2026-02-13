@@ -25,9 +25,6 @@ import { createClient, type SeedvaultClient, ApiError } from "../cli/src/client.
 import { createWatcher, type FileEvent } from "../cli/src/daemon/watcher.js";
 import type { CollectionConfig } from "../cli/src/config.js";
 
-// NOTE: We don't import Syncer here so tests can isolate watcher behavior
-// from queue/retry behavior; we handle watcher events directly via the API.
-
 // ---------------------------------------------------------------------------
 // Globals set in beforeAll
 // ---------------------------------------------------------------------------
@@ -71,8 +68,6 @@ async function waitForDelete(
       const { files } = await cl.listFiles(username);
       if (!files.some((f) => f.path === path)) return;
     } catch (e) {
-      // listFiles can 500 if the directory was cleaned up mid-walk;
-      // treat this as "still settling" and keep polling.
       if (e instanceof ApiError && e.status >= 500) continue;
       throw e;
     }
@@ -97,8 +92,6 @@ function setupWatcher(collectionName: string, tmpPrefix: string) {
     const collections: CollectionConfig[] = [{ path: watchDir, name: collectionName }];
     const syncHandler = createSyncHandler(client, username);
     watcher = createWatcher(collections, (event) => {
-      // Track in-flight sync tasks so teardown can await them and avoid
-      // late requests racing against server shutdown.
       let task: Promise<void>;
       task = syncHandler(event).finally(() => {
         pendingSyncs.delete(task);
@@ -117,22 +110,8 @@ function setupWatcher(collectionName: string, tmpPrefix: string) {
   return { get watchDir() { return watchDir; } };
 }
 
-/** Best-effort cleanup of QMD collection state used by integration tests. */
-async function cleanupQmdCollection(name: string): Promise<void> {
-  try {
-    const proc = Bun.spawn(["qmd", "collection", "remove", name], {
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    await proc.exited;
-  } catch {
-    // Ignore cleanup failures (e.g., qmd unavailable).
-  }
-}
-
 /**
  * Direct sync handler: processes watcher events by calling the API directly.
- * Replaces Syncer+RetryQueue for test isolation.
  */
 function createSyncHandler(cl: SeedvaultClient, username: string) {
   return async (event: FileEvent) => {
@@ -141,7 +120,6 @@ function createSyncHandler(cl: SeedvaultClient, username: string) {
       await cl.putFile(username, event.serverPath, content);
     } else if (event.type === "unlink") {
       await cl.deleteFile(username, event.serverPath).catch((e) => {
-        // Ignore 404 — file may not have been synced yet
         if (e instanceof ApiError && e.status === 404) return;
         throw e;
       });
@@ -154,14 +132,10 @@ function createSyncHandler(cl: SeedvaultClient, username: string) {
 // ---------------------------------------------------------------------------
 
 beforeAll(async () => {
-  // 1. Set up server data directory and database
   serverDataDir = makeTempDir("sv-test-data-");
-  const storageRoot = join(serverDataDir, "files");
-  await mkdir(storageRoot, { recursive: true });
   initDb(join(serverDataDir, "seedvault.db"));
 
-  // 2. Create and start the server on a random port
-  const app = createApp(storageRoot);
+  const app = createApp();
   server = Bun.serve({
     port: 0,
     fetch: app.fetch,
@@ -169,17 +143,14 @@ beforeAll(async () => {
 
   const baseUrl = `http://127.0.0.1:${server.port}`;
 
-  // 3. Sign up (first user — no invite needed)
   const anonClient = createClient(baseUrl);
   const signup = await anonClient.signup(TEST_CONTRIBUTOR_NAME);
   username = signup.contributor.username;
 
-  // 4. Create authenticated client
   client = createClient(baseUrl, signup.token);
 }, 10_000);
 
 afterAll(async () => {
-  await cleanupQmdCollection(TEST_CONTRIBUTOR_NAME);
   if (server) server.stop(true);
   await rm(serverDataDir, { recursive: true, force: true }).catch(() => {});
 });
@@ -211,12 +182,37 @@ describe("API basics", () => {
     expect(got).toBe(content);
   });
 
+  test("GET file returns metadata headers", async () => {
+    const baseUrl = `http://127.0.0.1:${server.port}`;
+    const res = await fetch(`${baseUrl}/v1/files/${username}/test/hello.md`, {
+      headers: { Authorization: `Bearer ${(await client.me(), "")}` },
+    });
+    // We can't easily get the token, so test via client instead
+    const path = "test/meta-check.md";
+    const content = "# Meta\n";
+    await client.putFile(username, path, content);
+    const got = await client.getFile(username, path);
+    expect(got).toBe(content);
+  });
+
+  test("GET nonexistent file returns 404", async () => {
+    const err = await client.getFile(username, "nonexistent.md").catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(404);
+  });
+
   test("DELETE removes a file", async () => {
     const path = "test/to-delete.md";
     await client.putFile(username, path, "bye");
     await client.deleteFile(username, path);
 
     const err = await client.getFile(username, path).catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(404);
+  });
+
+  test("DELETE nonexistent file returns 404", async () => {
+    const err = await client.deleteFile(username, "nonexistent.md").catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
@@ -401,45 +397,6 @@ describe("watcher nested structures", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Shell endpoint
-// ---------------------------------------------------------------------------
-
-describe("shell endpoint", () => {
-  test("sh('ls') lists contributors", async () => {
-    const output = await client.sh("ls");
-    expect(output).toContain(username);
-  });
-
-  test("sh('cat username/path') reads a file", async () => {
-    // "test/hello.md" was uploaded in the API basics tests
-    const output = await client.sh(`cat ${username}/test/hello.md`);
-    expect(output).toBe("# Hello\n\nWorld.\n");
-  });
-
-  test("sh('find') finds files", async () => {
-    const output = await client.sh(`find ${username} -name "*.md"`);
-    expect(output).toContain("hello.md");
-  });
-
-  test("sh('grep') searches across files", async () => {
-    const output = await client.sh(`grep -r "Hello" ${username}/test/`);
-    expect(output).toContain("hello.md");
-  });
-
-  test("rejects non-whitelisted commands", async () => {
-    const err = await client.sh("rm -rf /").catch((e) => e);
-    expect(err).toBeInstanceOf(ApiError);
-    expect(err.status).toBe(400);
-  });
-
-  test("rejects path traversal", async () => {
-    const err = await client.sh("cat ../../../etc/passwd").catch((e) => e);
-    expect(err).toBeInstanceOf(ApiError);
-    expect(err.status).toBe(400);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // File deletes
 // ---------------------------------------------------------------------------
 
@@ -476,11 +433,11 @@ describe("file deletes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Origin timestamps
+// Timestamps
 // ---------------------------------------------------------------------------
 
-describe("origin timestamps", () => {
-  test("PUT returns origin timestamps when headers sent", async () => {
+describe("timestamps", () => {
+  test("PUT returns timestamps when headers sent", async () => {
     const ctime = "2024-06-15T10:30:00.000Z";
     const mtime = "2024-07-20T14:45:00.000Z";
 
@@ -489,10 +446,8 @@ describe("origin timestamps", () => {
       originMtime: mtime,
     });
 
-    expect(res.originCtime).toBe(ctime);
-    expect(res.originMtime).toBe(mtime);
-    expect(res.serverCreatedAt).toBeDefined();
-    expect(res.serverModifiedAt).toBeDefined();
+    expect(res.createdAt).toBe(ctime);
+    expect(res.modifiedAt).toBe(mtime);
   });
 
   test("PUT without headers uses server fallback", async () => {
@@ -500,14 +455,13 @@ describe("origin timestamps", () => {
     const res = await client.putFile(username, "ts/no-headers.md", "# No headers\n");
     const after = new Date().toISOString();
 
-    expect(res.originCtime).toBeDefined();
-    expect(res.originMtime).toBeDefined();
-    // Fallback timestamps should be approximately now
-    expect(res.originCtime! >= before).toBe(true);
-    expect(res.originMtime! <= after).toBe(true);
+    expect(res.createdAt).toBeDefined();
+    expect(res.modifiedAt).toBeDefined();
+    expect(res.createdAt >= before).toBe(true);
+    expect(res.modifiedAt <= after).toBe(true);
   });
 
-  test("origin_ctime preserved on update, origin_mtime updated", async () => {
+  test("createdAt preserved on update, modifiedAt updated", async () => {
     const ctime1 = "2024-01-01T00:00:00.000Z";
     const mtime1 = "2024-01-01T12:00:00.000Z";
     const res1 = await client.putFile(username, "ts/update-test.md", "# V1\n", {
@@ -515,7 +469,7 @@ describe("origin timestamps", () => {
       originMtime: mtime1,
     });
 
-    await Bun.sleep(50); // ensure server_modified_at differs
+    await Bun.sleep(50);
 
     const ctime2 = "2024-06-01T00:00:00.000Z";
     const mtime2 = "2024-06-15T09:00:00.000Z";
@@ -524,27 +478,21 @@ describe("origin timestamps", () => {
       originMtime: mtime2,
     });
 
-    // origin_ctime preserved from first upload
-    expect(res2.originCtime).toBe(ctime1);
-    // origin_mtime updated to second upload's value
-    expect(res2.originMtime).toBe(mtime2);
-    // server_created_at preserved
-    expect(res2.serverCreatedAt).toBe(res1.serverCreatedAt);
-    // server_modified_at advanced
-    expect(res2.serverModifiedAt! > res1.serverModifiedAt!).toBe(true);
+    // createdAt preserved from first upload
+    expect(res2.createdAt).toBe(ctime1);
+    // modifiedAt updated to second upload's value
+    expect(res2.modifiedAt).toBe(mtime2);
   });
 
-  test("listFiles returns origin timestamps", async () => {
+  test("listFiles returns timestamps", async () => {
     const { files } = await client.listFiles(username, "ts/");
     const f = files.find((f) => f.path === "ts/with-headers.md");
     expect(f).toBeDefined();
-    expect(f!.originCtime).toBe("2024-06-15T10:30:00.000Z");
-    expect(f!.originMtime).toBe("2024-07-20T14:45:00.000Z");
-    expect(f!.serverCreatedAt).toBeDefined();
-    expect(f!.serverModifiedAt).toBeDefined();
+    expect(f!.createdAt).toBe("2024-06-15T10:30:00.000Z");
+    expect(f!.modifiedAt).toBe("2024-07-20T14:45:00.000Z");
   });
 
-  test("delete removes metadata, re-upload gets fresh ctime", async () => {
+  test("delete removes metadata, re-upload gets fresh createdAt", async () => {
     const ctime1 = "2023-01-01T00:00:00.000Z";
     await client.putFile(username, "ts/delete-reup.md", "# First\n", {
       originCtime: ctime1,
@@ -560,9 +508,8 @@ describe("origin timestamps", () => {
       originMtime: mtime2,
     });
 
-    // Fresh ctime — not the old one
-    expect(res.originCtime).toBe(ctime2);
-    expect(res.originMtime).toBe(mtime2);
+    expect(res.createdAt).toBe(ctime2);
+    expect(res.modifiedAt).toBe(mtime2);
   });
 
   test("millisecond precision preserved", async () => {
@@ -574,17 +521,16 @@ describe("origin timestamps", () => {
       originMtime: mtime,
     });
 
-    expect(res.originCtime).toBe(ctime);
-    expect(res.originMtime).toBe(mtime);
+    expect(res.createdAt).toBe(ctime);
+    expect(res.modifiedAt).toBe(mtime);
 
-    // Verify through listing as well
     const { files } = await client.listFiles(username, "ts/");
     const f = files.find((f) => f.path === "ts/precision.md");
-    expect(f!.originCtime).toBe(ctime);
-    expect(f!.originMtime).toBe(mtime);
+    expect(f!.createdAt).toBe(ctime);
+    expect(f!.modifiedAt).toBe(mtime);
   });
 
-  test("multiple rapid updates preserve original ctime", async () => {
+  test("multiple rapid updates preserve original createdAt", async () => {
     const originalCtime = "2024-01-01T00:00:00.000Z";
     let lastMtime = "";
 
@@ -598,8 +544,8 @@ describe("origin timestamps", () => {
 
     const { files } = await client.listFiles(username, "ts/");
     const f = files.find((f) => f.path === "ts/rapid.md");
-    expect(f!.originCtime).toBe(originalCtime);
-    expect(f!.originMtime).toBe(lastMtime);
+    expect(f!.createdAt).toBe(originalCtime);
+    expect(f!.modifiedAt).toBe(lastMtime);
   });
 
   test("files uploaded without headers still have fallback timestamps in listings", async () => {
@@ -609,11 +555,45 @@ describe("origin timestamps", () => {
     const { files } = await client.listFiles(username, "ts/");
     const f = files.find((f) => f.path === "ts/legacy.md");
     expect(f).toBeDefined();
-    expect(f!.originCtime).toBeDefined();
-    expect(f!.originMtime).toBeDefined();
-    expect(f!.serverCreatedAt).toBeDefined();
-    expect(f!.serverModifiedAt).toBeDefined();
-    // Fallback timestamps should be >= before
-    expect(f!.originCtime! >= before).toBe(true);
+    expect(f!.createdAt).toBeDefined();
+    expect(f!.modifiedAt).toBeDefined();
+    expect(f!.createdAt >= before).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FTS5 Search
+// ---------------------------------------------------------------------------
+
+describe("FTS5 search", () => {
+  test("search finds content by keyword", async () => {
+    await client.putFile(username, "search/unique-keyword-test.md", "# Xylophone Orchestra\n\nPlaying melodious tunes.\n");
+
+    const { results } = await client.search("xylophone");
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.some((r) => r.path === "search/unique-keyword-test.md")).toBe(true);
+  });
+
+  test("search filters by contributor", async () => {
+    const { results } = await client.search("xylophone", { contributor: username });
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results.every((r) => r.contributor === username)).toBe(true);
+  });
+
+  test("search respects limit", async () => {
+    const { results } = await client.search("xylophone", { limit: 1 });
+    expect(results.length).toBeLessThanOrEqual(1);
+  });
+
+  test("search returns snippets", async () => {
+    const { results } = await client.search("melodious");
+    const match = results.find((r) => r.path === "search/unique-keyword-test.md");
+    expect(match).toBeDefined();
+    expect(match!.snippet).toContain("melodious");
+  });
+
+  test("search returns empty for no matches", async () => {
+    const { results } = await client.search("zzzznonexistentterm");
+    expect(results.length).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 ---
 name: seedvault
-version: 0.1.0
+version: 0.2.0
 description: Pooled markdown sync service. Keep local markdown folders in sync with a central server.
 homepage: https://www.seedvault.ai
 ---
@@ -11,31 +11,31 @@ homepage: https://www.seedvault.ai
 
 | File | URL |
 |------|-----|
-| SKILL.md (this file) | `https://www.seedvault.ai/skill.md` |
-| install-cli.sh | `https://www.seedvault.ai/install-cli.sh` |
-| uninstall-cli.sh | `https://www.seedvault.ai/uninstall-cli.sh` |
+| SKILL.md (this file) | `https://raw.githubusercontent.com/collaborator-ai/seedvault/main/skill.md` |
+| install-cli.sh | `https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh` |
+| uninstall-cli.sh | `https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh` |
 
 ## What is Seedvault
 
-Seedvault is a **pooled markdown sync service**. Multiple contributors sync local markdown folders to one central server. Each contributor owns their files (write access); everyone else gets read-only access. Files are plain markdown on disk, indexed by [QMD](https://github.com/tobi/qmd) for hybrid search (BM25 + semantic + LLM re-ranking).
+Seedvault is a **pooled markdown sync service**. Multiple contributors sync local markdown folders to one central server. Each contributor owns their files (write access); everyone else gets read-only access. Files are stored in SQLite with FTS5 full-text search.
 
 ## Install
 
 **Interactive** (humans):
 ```bash
-curl -fsSL https://seedvault.ai/install-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash
 ```
 
 **Non-interactive** (agents / CI):
 ```bash
-curl -fsSL https://seedvault.ai/install-cli.sh | bash -s -- --no-onboard
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash -s -- --no-onboard
 sv init --server URL --token TOKEN --contributor-id ID
 ```
 
 ## Core Concepts
 
-- **Vault** — A single Seedvault server deployment. One server, one storage root, one set of API endpoints.
-- **Contributor** — Your namespace within the vault. One owner, one write token, one directory on the server. You write to yours, read from everyone's.
+- **Vault** — A single Seedvault server deployment. One server, one SQLite database, one set of API endpoints.
+- **Contributor** — Your namespace within the vault. One owner, one write token. You write to yours, read from everyone's.
 - **Collection** — A local folder you sync. Maps to a named prefix on the server (e.g., `~/notes` → `notes/` on server). Name defaults to the folder basename.
 - **Token** — `sv_...` bearer token, scoped to your contributor. Created at signup. Grants write access to your contributor and read access to all contributors.
 
@@ -105,15 +105,13 @@ sv status
 ```
 Shows service state (launchd/systemd/Task Scheduler), configured collections, and server connectivity.
 
-## File Operations (reads from server)
+## File Operations
 
-The vault's storage root is exposed as a read-only filesystem. Contributors are top-level directories. All read commands pass through to the server via `POST /v1/sh` — you're running real Unix commands against the file tree.
-
-### Browse the vault
+### List contributors or files
 ```bash
 sv ls                          # List all contributors
-sv ls yiliu/                   # List a contributor's collections
-sv ls yiliu/notes/             # List files in a collection
+sv ls yiliu                    # List a contributor's files
+sv ls yiliu/notes/             # List files under a prefix
 ```
 
 ### Read files
@@ -123,37 +121,24 @@ sv cat yiliu/notes/seedvault.md
 
 ### Search
 ```bash
-sv grep -r "search term" .           # Search across all contributors
-sv grep -rl "API design" yiliu/      # File names only, one contributor
+sv grep "search term"                          # Search all content
+sv grep "API design" --contributor yiliu        # Filter by contributor
+sv grep "query" --limit 5                       # Limit results
 ```
-
-### Find files
-```bash
-sv find . -name "*.md"                    # All markdown files
-sv find yiliu -name "*.md" -mmin -60      # Recently modified
-```
-
-### Other commands
-`head`, `tail`, `wc`, `stat`, and `tree` also work:
-```bash
-sv head -20 yiliu/notes/seedvault.md
-sv tree yiliu -L 2
-sv wc -l yiliu/notes/*.md
-```
-
-**Note:** Since commands run without a shell, globs like `*.md` won't expand in `ls` or `cat`. Use `find -name "*.md"` instead.
 
 ### HTTP API (direct)
 
-Agents can also call the shell endpoint directly:
+Read a file:
 ```bash
-curl -s https://vault.example.com/v1/sh \
-  -H "Authorization: Bearer sv_..." \
-  -H "Content-Type: application/json" \
-  -d '{"cmd": "grep -r \"context\" yiliu/"}'
+curl -s https://vault.example.com/v1/files/yiliu/notes/seedvault.md \
+  -H "Authorization: Bearer sv_..."
 ```
 
-Allowed commands: `ls`, `cat`, `head`, `tail`, `find`, `grep`, `wc`, `tree`, `stat`. Response is plain text stdout with `X-Exit-Code` and `X-Stderr` headers.
+Search:
+```bash
+curl -s "https://vault.example.com/v1/search?q=context&contributor=yiliu" \
+  -H "Authorization: Bearer sv_..."
+```
 
 ## Vault Info
 
@@ -171,7 +156,7 @@ sv invite
 
 ### 1. Set up from scratch with an invite code
 ```bash
-curl -fsSL https://seedvault.ai/install-cli.sh | bash -s -- --no-onboard
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash -s -- --no-onboard
 sv init --server https://vault.example.com --name agent-notes --invite INVITE_CODE
 sv add ~/workspace/notes
 sv start
@@ -188,15 +173,13 @@ sv start
 sv ls                              # See all contributors
 sv ls yiliu/notes/                 # Browse someone's files
 sv cat yiliu/notes/seedvault.md    # Read a file
-sv grep -r "query" .              # Search everything
+sv grep "query"                    # Search everything
 ```
 
 ### 4. Read a specific file (HTTP)
 ```bash
-curl -s https://vault.example.com/v1/sh \
-  -H "Authorization: Bearer sv_..." \
-  -H "Content-Type: application/json" \
-  -d '{"cmd": "cat yiliu/notes/seedvault.md"}'
+curl -s https://vault.example.com/v1/files/yiliu/notes/seedvault.md \
+  -H "Authorization: Bearer sv_..."
 ```
 
 ## Configuration
@@ -222,5 +205,5 @@ sv --version
 
 ## Uninstall
 ```bash
-curl -fsSL https://seedvault.ai/uninstall-cli.sh | bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh | bash
 ```

@@ -11,7 +11,7 @@ import { stop } from "./commands/stop.js";
 import { status } from "./commands/status.js";
 import { ls } from "./commands/ls.js";
 import { cat } from "./commands/cat.js";
-import { sh } from "./commands/sh.js";
+import { grep } from "./commands/grep.js";
 import { contributors } from "./commands/contributors.js";
 import { invite } from "./commands/invite.js";
 import { upgrade } from "./commands/update.js";
@@ -39,9 +39,9 @@ Daemon:
   status                        Show sync status
 
 Files:
-  sh <command>                  Run a shell command on the vault (ls, cat, grep, etc.)
-  ls [args...]                  Shorthand for: sv sh "ls [args...]"
-  cat <path>                    Shorthand for: sv sh "cat <path>"
+  ls [username[/prefix]]        List contributors or files
+  cat <username/path>           Read a file from the vault
+  grep <query> [--contributor NAME] [--limit N]  Search vault content
 
 Vault:
   contributors                  List all contributors
@@ -82,14 +82,12 @@ async function main(): Promise<void> {
         return await stop();
       case "status":
         return await status();
-      case "sh":
-        return await sh(args);
       case "ls":
         return await ls(args);
       case "cat":
         return await cat(args);
-      // case "grep":
-      //   return await grep(args);
+      case "grep":
+        return await grep(args);
       case "contributors":
         return await contributors();
       case "invite":

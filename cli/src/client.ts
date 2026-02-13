@@ -17,10 +17,10 @@ export interface SeedvaultClient {
   deleteFile(username: string, path: string): Promise<void>;
   /** GET /v1/files?prefix=username/... */
   listFiles(username: string, prefix?: string): Promise<FilesResponse>;
-  /** Read a file via sh("cat ...") */
+  /** GET /v1/files/:username/*path */
   getFile(username: string, path: string): Promise<string>;
-  /** POST /v1/sh — shell passthrough */
-  sh(cmd: string): Promise<string>;
+  /** GET /v1/search?q=&contributor=&limit= */
+  search(query: string, opts?: SearchOptions): Promise<SearchResponse>;
   /** GET /health */
   health(): Promise<HealthResponse>;
 }
@@ -49,21 +49,15 @@ export interface ContributorsResponse {
 export interface FileWriteResponse {
   path: string;
   size: number;
+  createdAt: string;
   modifiedAt: string;
-  originCtime?: string;
-  originMtime?: string;
-  serverCreatedAt?: string;
-  serverModifiedAt?: string;
 }
 
 export interface FileEntry {
   path: string;
   size: number;
+  createdAt: string;
   modifiedAt: string;
-  originCtime?: string;
-  originMtime?: string;
-  serverCreatedAt?: string;
-  serverModifiedAt?: string;
 }
 
 export interface PutFileOptions {
@@ -73,6 +67,22 @@ export interface PutFileOptions {
 
 export interface FilesResponse {
   files: FileEntry[];
+}
+
+export interface SearchOptions {
+  contributor?: string;
+  limit?: number;
+}
+
+export interface SearchResult {
+  contributor: string;
+  path: string;
+  snippet: string;
+  rank: number;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
 }
 
 export interface HealthResponse {
@@ -184,7 +194,6 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
       const qs = `?prefix=${encodeURIComponent(fullPrefix)}`;
       const res = await request("GET", `/v1/files${qs}`);
       const data: FilesResponse = await res.json();
-      // Strip username prefix from paths so syncer sees same data as before
       return {
         files: data.files.map((f) => ({
           ...f,
@@ -196,28 +205,16 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     },
 
     async getFile(username: string, path: string): Promise<string> {
-      const fullPath = `${username}/${path}`;
-      const res = await request("POST", "/v1/sh", {
-        body: JSON.stringify({ cmd: `cat "${fullPath}"` }),
-        contentType: "application/json",
-      });
-      const exitCode = parseInt(res.headers.get("X-Exit-Code") || "0", 10);
-      if (exitCode !== 0) {
-        const stderr = decodeURIComponent(res.headers.get("X-Stderr") || "");
-        if (stderr.includes("No such file or directory")) {
-          throw new ApiError(404, "File not found");
-        }
-        throw new ApiError(500, stderr || `cat exited with code ${exitCode}`);
-      }
+      const res = await request("GET", `/v1/files/${username}/${encodePath(path)}`);
       return res.text();
     },
 
-    async sh(cmd: string): Promise<string> {
-      const res = await request("POST", "/v1/sh", {
-        body: JSON.stringify({ cmd }),
-        contentType: "application/json",
-      });
-      return res.text();
+    async search(query: string, opts?: SearchOptions): Promise<SearchResponse> {
+      const params = new URLSearchParams({ q: query });
+      if (opts?.contributor) params.set("contributor", opts.contributor);
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      const res = await request("GET", `/v1/search?${params}`);
+      return res.json();
     },
 
     async health(): Promise<HealthResponse> {

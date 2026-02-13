@@ -37,17 +37,47 @@ export function initDb(dbPath: string): Database {
       used_by TEXT REFERENCES contributors(username)
     );
 
-    CREATE TABLE IF NOT EXISTS files (
+    CREATE TABLE IF NOT EXISTS items (
       contributor TEXT NOT NULL,
       path TEXT NOT NULL,
-      origin_ctime TEXT NOT NULL,
-      origin_mtime TEXT NOT NULL,
-      server_created_at TEXT NOT NULL,
-      server_modified_at TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      modified_at TEXT NOT NULL,
       PRIMARY KEY (contributor, path),
       FOREIGN KEY (contributor) REFERENCES contributors(username)
     );
   `);
+
+  // FTS5 virtual table (cannot use IF NOT EXISTS, so check first)
+  const hasFts = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='items_fts'"
+    )
+    .get();
+  if (!hasFts) {
+    db.exec(`
+      CREATE VIRTUAL TABLE items_fts USING fts5(
+        path, content, content=items, content_rowid=rowid
+      );
+
+      CREATE TRIGGER items_ai AFTER INSERT ON items BEGIN
+        INSERT INTO items_fts(rowid, path, content)
+        VALUES (new.rowid, new.path, new.content);
+      END;
+
+      CREATE TRIGGER items_ad AFTER DELETE ON items BEGIN
+        INSERT INTO items_fts(items_fts, rowid, path, content)
+        VALUES ('delete', old.rowid, old.path, old.content);
+      END;
+
+      CREATE TRIGGER items_au AFTER UPDATE ON items BEGIN
+        INSERT INTO items_fts(items_fts, rowid, path, content)
+        VALUES ('delete', old.rowid, old.path, old.content);
+        INSERT INTO items_fts(rowid, path, content)
+        VALUES (new.rowid, new.path, new.content);
+      END;
+    `);
+  }
 
   return db;
 }
@@ -61,8 +91,41 @@ export function validateUsername(username: string): string | null {
   if (username.length > 63) {
     return "Username must be 63 characters or fewer";
   }
-  if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(username) && !/^[a-z0-9]$/.test(username)) {
+  if (
+    !/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(username) &&
+    !/^[a-z0-9]$/.test(username)
+  ) {
     return "Username must be lowercase alphanumeric with hyphens, starting and ending with alphanumeric";
+  }
+  return null;
+}
+
+// --- Path validation ---
+
+export function validatePath(filePath: string): string | null {
+  if (!filePath || filePath.length === 0) {
+    return "Path cannot be empty";
+  }
+  if (filePath.startsWith("/")) {
+    return "Path cannot start with /";
+  }
+  if (filePath.includes("\\")) {
+    return "Path cannot contain backslashes";
+  }
+  if (filePath.includes("//")) {
+    return "Path cannot contain double slashes";
+  }
+  if (!filePath.endsWith(".md")) {
+    return "Path must end in .md";
+  }
+  const segments = filePath.split("/");
+  for (const seg of segments) {
+    if (seg === "." || seg === "..") {
+      return "Path cannot contain . or .. segments";
+    }
+    if (seg.length === 0) {
+      return "Path cannot contain empty segments";
+    }
   }
   return null;
 }
@@ -75,7 +138,10 @@ export interface Contributor {
   created_at: string;
 }
 
-export function createContributor(username: string, isOperator: boolean): Contributor {
+export function createContributor(
+  username: string,
+  isOperator: boolean
+): Contributor {
   const now = new Date().toISOString();
   getDb()
     .prepare(
@@ -87,7 +153,9 @@ export function createContributor(username: string, isOperator: boolean): Contri
 
 export function getContributor(username: string): Contributor | null {
   const row = getDb()
-    .prepare("SELECT username, is_operator, created_at FROM contributors WHERE username = ?")
+    .prepare(
+      "SELECT username, is_operator, created_at FROM contributors WHERE username = ?"
+    )
     .get(username) as Contributor | null;
   if (row) row.is_operator = Boolean(row.is_operator);
   return row;
@@ -95,7 +163,9 @@ export function getContributor(username: string): Contributor | null {
 
 export function listContributors(): Contributor[] {
   const rows = getDb()
-    .prepare("SELECT username, is_operator, created_at FROM contributors ORDER BY created_at ASC")
+    .prepare(
+      "SELECT username, is_operator, created_at FROM contributors ORDER BY created_at ASC"
+    )
     .all() as Contributor[];
   return rows.map((r) => ({ ...r, is_operator: Boolean(r.is_operator) }));
 }
@@ -118,7 +188,11 @@ export interface ApiKey {
   last_used_at: string | null;
 }
 
-export function createApiKey(keyHash: string, label: string, contributor: string): ApiKey {
+export function createApiKey(
+  keyHash: string,
+  label: string,
+  contributor: string
+): ApiKey {
   const id = `key_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const now = new Date().toISOString();
   getDb()
@@ -126,7 +200,14 @@ export function createApiKey(keyHash: string, label: string, contributor: string
       "INSERT INTO api_keys (id, key_hash, label, contributor, created_at) VALUES (?, ?, ?, ?, ?)"
     )
     .run(id, keyHash, label, contributor, now);
-  return { id, key_hash: keyHash, label, contributor, created_at: now, last_used_at: null };
+  return {
+    id,
+    key_hash: keyHash,
+    label,
+    contributor,
+    created_at: now,
+    last_used_at: null,
+  };
 }
 
 export function getApiKeyByHash(keyHash: string): ApiKey | null {
@@ -159,7 +240,13 @@ export function createInvite(createdBy: string): Invite {
       "INSERT INTO invites (id, created_by, created_at) VALUES (?, ?, ?)"
     )
     .run(id, createdBy, now);
-  return { id, created_by: createdBy, created_at: now, used_at: null, used_by: null };
+  return {
+    id,
+    created_by: createdBy,
+    created_at: now,
+    used_at: null,
+    used_by: null,
+  };
 }
 
 export function getInvite(id: string): Invite | null {
@@ -174,63 +261,167 @@ export function markInviteUsed(id: string, usedBy: string): void {
     .run(new Date().toISOString(), usedBy, id);
 }
 
-// --- File Metadata ---
+// --- Items ---
 
-export interface FileMetadata {
+export interface Item {
   contributor: string;
   path: string;
-  origin_ctime: string;
-  origin_mtime: string;
-  server_created_at: string;
-  server_modified_at: string;
+  content: string;
+  created_at: string;
+  modified_at: string;
 }
 
-export function upsertFileMetadata(
+export interface ItemEntry {
+  path: string;
+  size: number;
+  created_at: string;
+  modified_at: string;
+}
+
+export interface SearchResult {
+  contributor: string;
+  path: string;
+  snippet: string;
+  rank: number;
+}
+
+/**
+ * Resolve origin ctime with fallback chain:
+ * valid ctime → mtime → now.
+ * A ctime is invalid if missing or epoch (birthtimeMs=0 on Linux/Docker).
+ */
+export function validateOriginCtime(
+  originCtime: string | undefined,
+  originMtime: string | undefined
+): string {
+  if (originCtime) {
+    const ms = new Date(originCtime).getTime();
+    // Treat epoch (0) or invalid dates as missing
+    if (ms > 0 && !isNaN(ms)) return originCtime;
+  }
+  if (originMtime) {
+    const ms = new Date(originMtime).getTime();
+    if (ms > 0 && !isNaN(ms)) return originMtime;
+  }
+  return new Date().toISOString();
+}
+
+const MAX_CONTENT_SIZE = 10 * 1024 * 1024; // 10 MB
+
+export function upsertItem(
   contributor: string,
   path: string,
-  originCtime: string,
-  originMtime: string
-): FileMetadata {
+  content: string,
+  originCtime?: string,
+  originMtime?: string
+): Item {
+  if (Buffer.byteLength(content) > MAX_CONTENT_SIZE) {
+    throw new ItemTooLargeError(Buffer.byteLength(content));
+  }
+
   const now = new Date().toISOString();
+  const createdAt = validateOriginCtime(originCtime, originMtime);
+  const modifiedAt = originMtime || now;
+
   getDb()
     .prepare(
-      `INSERT INTO files (contributor, path, origin_ctime, origin_mtime, server_created_at, server_modified_at)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO items (contributor, path, content, created_at, modified_at)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (contributor, path) DO UPDATE SET
-         origin_mtime = excluded.origin_mtime,
-         server_modified_at = excluded.server_modified_at`
+         content = excluded.content,
+         modified_at = excluded.modified_at`
     )
-    .run(contributor, path, originCtime, originMtime, now, now);
+    .run(contributor, path, content, createdAt, modifiedAt);
 
-  return getFileMetadata(contributor, path)!;
+  return getItem(contributor, path)!;
 }
 
-export function getFileMetadata(contributor: string, path: string): FileMetadata | null {
+export function getItem(contributor: string, path: string): Item | null {
   return getDb()
-    .prepare("SELECT * FROM files WHERE contributor = ? AND path = ?")
-    .get(contributor, path) as FileMetadata | null;
+    .prepare(
+      "SELECT contributor, path, content, created_at, modified_at FROM items WHERE contributor = ? AND path = ?"
+    )
+    .get(contributor, path) as Item | null;
 }
 
-export function listFileMetadata(contributor: string, prefix?: string): Map<string, FileMetadata> {
-  const map = new Map<string, FileMetadata>();
-  let rows: FileMetadata[];
+export function listItems(
+  contributor: string,
+  prefix?: string
+): ItemEntry[] {
+  let rows: Array<{
+    path: string;
+    size: number;
+    created_at: string;
+    modified_at: string;
+  }>;
   if (prefix) {
     rows = getDb()
-      .prepare("SELECT * FROM files WHERE contributor = ? AND path LIKE ?")
-      .all(contributor, prefix + "%") as FileMetadata[];
+      .prepare(
+        `SELECT path, length(content) as size, created_at, modified_at
+         FROM items WHERE contributor = ? AND path LIKE ?
+         ORDER BY modified_at DESC`
+      )
+      .all(contributor, prefix + "%") as typeof rows;
   } else {
     rows = getDb()
-      .prepare("SELECT * FROM files WHERE contributor = ?")
-      .all(contributor) as FileMetadata[];
+      .prepare(
+        `SELECT path, length(content) as size, created_at, modified_at
+         FROM items WHERE contributor = ?
+         ORDER BY modified_at DESC`
+      )
+      .all(contributor) as typeof rows;
   }
-  for (const row of rows) {
-    map.set(row.path, row);
-  }
-  return map;
+  return rows;
 }
 
-export function deleteFileMetadata(contributor: string, path: string): void {
-  getDb()
-    .prepare("DELETE FROM files WHERE contributor = ? AND path = ?")
+export function deleteItem(contributor: string, path: string): boolean {
+  const result = getDb()
+    .prepare("DELETE FROM items WHERE contributor = ? AND path = ?")
     .run(contributor, path);
+  return result.changes > 0;
+}
+
+export function searchItems(
+  query: string,
+  contributor?: string,
+  limit = 10
+): SearchResult[] {
+  if (contributor) {
+    return getDb()
+      .prepare(
+        `SELECT i.contributor, i.path,
+                snippet(items_fts, 1, '<b>', '</b>', '...', 32) as snippet,
+                rank
+         FROM items_fts
+         JOIN items i ON items_fts.rowid = i.rowid
+         WHERE items_fts MATCH ?
+           AND i.contributor = ?
+         ORDER BY rank
+         LIMIT ?`
+      )
+      .all(query, contributor, limit) as SearchResult[];
+  }
+  return getDb()
+    .prepare(
+      `SELECT i.contributor, i.path,
+              snippet(items_fts, 1, '<b>', '</b>', '...', 32) as snippet,
+              rank
+       FROM items_fts
+       JOIN items i ON items_fts.rowid = i.rowid
+       WHERE items_fts MATCH ?
+       ORDER BY rank
+       LIMIT ?`
+    )
+    .all(query, limit) as SearchResult[];
+}
+
+// --- Custom errors ---
+
+export class ItemTooLargeError extends Error {
+  public size: number;
+  constructor(size: number) {
+    super(`Content too large: ${size} bytes (max ${MAX_CONTENT_SIZE})`);
+    this.name = "ItemTooLargeError";
+    this.size = size;
+  }
 }
