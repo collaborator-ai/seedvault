@@ -18,6 +18,8 @@ import {
 	listItems,
 	deleteItem,
 	searchItems,
+	createActivityEvent,
+	listActivityEvents,
 	ItemTooLargeError,
 } from "./db.js";
 import {
@@ -27,9 +29,19 @@ import {
 	getAuthCtx,
 } from "./auth.js";
 import { broadcast, addClient, removeClient } from "./sse.js";
+import { computeDiff } from "./diff.js";
 
 const uiPath = resolve(import.meta.dirname, "index.html");
 const isDev = process.env.NODE_ENV !== "production";
+
+function logActivity(
+	contributor: string,
+	action: string,
+	detail?: Record<string, unknown>,
+) {
+	const event = createActivityEvent(contributor, action, detail);
+	broadcast("activity", event);
+}
 const uiHtmlCached = readFileSync(uiPath, "utf-8");
 
 /**
@@ -125,6 +137,10 @@ export function createApp(): Hono {
 			markInviteUsed(body.invite, contributor.username);
 		}
 
+		logActivity(contributor.username, "contributor_created", {
+			username: contributor.username,
+		});
+
 		return c.json(
 			{
 				contributor: {
@@ -165,6 +181,11 @@ export function createApp(): Hono {
 		}
 
 		const invite = createInvite(contributor.username);
+
+		logActivity(contributor.username, "invite_created", {
+			invite: invite.id,
+		});
+
 		return c.json(
 			{
 				invite: invite.id,
@@ -205,6 +226,10 @@ export function createApp(): Hono {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
+		logActivity(contributor.username, "contributor_deleted", {
+			username: target,
+		});
+
 		return c.body(null, 204);
 	});
 
@@ -240,6 +265,8 @@ export function createApp(): Hono {
 		const originCtime = c.req.header("X-Origin-Ctime") || now;
 		const originMtime = c.req.header("X-Origin-Mtime") || now;
 
+		const existing = getItem(parsed.username, parsed.filePath);
+
 		try {
 			const item = upsertItem(
 				parsed.username,
@@ -247,6 +274,23 @@ export function createApp(): Hono {
 				content,
 				originCtime,
 				originMtime
+			);
+
+			const detail: Record<string, unknown> = {
+				path: item.path,
+				size: Buffer.byteLength(item.content),
+			};
+			const diffResult = computeDiff(
+				existing?.content ?? "",
+				content,
+			);
+			if (diffResult) {
+				detail.diff = diffResult.diff;
+				if (diffResult.truncated) detail.diff_truncated = true;
+			}
+
+			logActivity(
+				contributor.username, "file_upserted", detail,
 			);
 
 			broadcast("file_updated", {
@@ -296,6 +340,10 @@ export function createApp(): Hono {
 		if (!found) {
 			return c.json({ error: "File not found" }, 404);
 		}
+
+		logActivity(contributor.username, "file_deleted", {
+			path: parsed.filePath,
+		});
 
 		broadcast("file_deleted", {
 			contributor: parsed.username,
@@ -419,6 +467,24 @@ export function createApp(): Hono {
 
 		const results = searchItems(q, contributorParam, limit);
 		return c.json({ results });
+	});
+
+	// --- Activity Log ---
+
+	authed.get("/v1/activity", (c) => {
+		const contributor = c.req.query("contributor") || undefined;
+		const action = c.req.query("action") || undefined;
+		const limit = c.req.query("limit")
+			? parseInt(c.req.query("limit")!, 10)
+			: undefined;
+		const offset = c.req.query("offset")
+			? parseInt(c.req.query("offset")!, 10)
+			: undefined;
+
+		const events = listActivityEvents({
+			contributor, action, limit, offset,
+		});
+		return c.json({ events });
 	});
 
 	// Mount authed routes

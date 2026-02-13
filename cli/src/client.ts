@@ -23,6 +23,8 @@ export interface SeedvaultClient {
   getFile(username: string, path: string): Promise<string>;
   /** GET /v1/search?q=&contributor=&limit= */
   search(query: string, opts?: SearchOptions): Promise<SearchResponse>;
+  /** GET /v1/activity?contributor=&action=&limit= */
+  listActivity(opts?: ActivityOptions): Promise<ActivityResponse>;
   /** GET /health */
   health(): Promise<HealthResponse>;
 }
@@ -85,6 +87,24 @@ export interface SearchResult {
 
 export interface SearchResponse {
   results: SearchResult[];
+}
+
+export interface ActivityEvent {
+  id: string;
+  contributor: string;
+  action: string;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface ActivityOptions {
+  contributor?: string;
+  action?: string;
+  limit?: number;
+}
+
+export interface ActivityResponse {
+  events: ActivityEvent[];
 }
 
 export interface HealthResponse {
@@ -220,6 +240,16 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
       if (opts?.contributor) params.set("contributor", opts.contributor);
       if (opts?.limit) params.set("limit", String(opts.limit));
       const res = await request("GET", `/v1/search?${params}`);
+      return res.json();
+    },
+
+    async listActivity(opts?: ActivityOptions): Promise<ActivityResponse> {
+      const params = new URLSearchParams();
+      if (opts?.contributor) params.set("contributor", opts.contributor);
+      if (opts?.action) params.set("action", opts.action);
+      if (opts?.limit) params.set("limit", String(opts.limit));
+      const qs = params.toString();
+      const res = await request("GET", `/v1/activity${qs ? `?${qs}` : ""}`);
       return res.json();
     },
 

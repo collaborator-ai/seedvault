@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { randomUUID } from "crypto";
+import { randomBytes, randomUUID } from "crypto";
 
 let db: Database;
 
@@ -46,6 +46,17 @@ export function initDb(dbPath: string): Database {
       PRIMARY KEY (contributor, path),
       FOREIGN KEY (contributor) REFERENCES contributors(username)
     );
+
+    CREATE TABLE IF NOT EXISTS activity (
+      id TEXT PRIMARY KEY,
+      contributor TEXT NOT NULL REFERENCES contributors(username),
+      action TEXT NOT NULL,
+      detail TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_activity_contributor ON activity(contributor);
+    CREATE INDEX IF NOT EXISTS idx_activity_created_at ON activity(created_at);
+    CREATE INDEX IF NOT EXISTS idx_activity_action ON activity(action);
   `);
 
   // FTS5 virtual table (cannot use IF NOT EXISTS, so check first)
@@ -176,6 +187,7 @@ export function deleteContributor(username: string): boolean {
     .prepare("SELECT 1 FROM contributors WHERE username = ?")
     .get(username);
   if (!exists) return false;
+  d.prepare("DELETE FROM activity WHERE contributor = ?").run(username);
   d.prepare("DELETE FROM items WHERE contributor = ?").run(username);
   d.prepare("DELETE FROM api_keys WHERE contributor = ?").run(username);
   d.prepare("DELETE FROM contributors WHERE username = ?").run(username);
@@ -425,6 +437,70 @@ export function searchItems(
        LIMIT ?`
     )
     .all(query, limit) as SearchResult[];
+}
+
+// --- Activity ---
+
+export interface ActivityEvent {
+  id: string;
+  contributor: string;
+  action: string;
+  detail: string | null;
+  created_at: string;
+}
+
+export interface ListActivityOptions {
+  contributor?: string;
+  action?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function createActivityEvent(
+  contributor: string,
+  action: string,
+  detail?: Record<string, unknown>
+): ActivityEvent {
+  const id = `act_${randomBytes(6).toString("hex")}`;
+  const now = new Date().toISOString();
+  const detailJson = detail ? JSON.stringify(detail) : null;
+  getDb()
+    .prepare(
+      "INSERT INTO activity (id, contributor, action, detail, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+    .run(id, contributor, action, detailJson, now);
+  return { id, contributor, action, detail: detailJson, created_at: now };
+}
+
+export function listActivityEvents(
+  opts?: ListActivityOptions
+): ActivityEvent[] {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (opts?.contributor) {
+    conditions.push("contributor = ?");
+    params.push(opts.contributor);
+  }
+  if (opts?.action) {
+    conditions.push("action = ?");
+    params.push(opts.action);
+  }
+
+  const where =
+    conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+  const limit = opts?.limit ?? 50;
+  const offset = opts?.offset ?? 0;
+  params.push(limit, offset);
+
+  return getDb()
+    .prepare(
+      `SELECT id, contributor, action, detail, created_at
+       FROM activity ${where}
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`
+    )
+    .all(...params) as ActivityEvent[];
 }
 
 // --- Custom errors ---

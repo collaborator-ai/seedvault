@@ -394,6 +394,242 @@
 			font-size: 11px;
 			opacity: 0.6;
 			flex-shrink: 0;
+			display: flex;
+			align-items: center;
+		}
+
+		#status-text {
+			flex: 1;
+		}
+
+		#activity-btn {
+			border: none;
+			font-size: 11px;
+			padding: 0 4px;
+			opacity: 0.6;
+			display: flex;
+			align-items: center;
+			gap: 3px;
+		}
+
+		#activity-btn:hover {
+			opacity: 1;
+		}
+
+		#activity-modal {
+			display: none;
+			position: fixed;
+			inset: 0;
+			z-index: 300;
+		}
+
+		#activity-modal.open {
+			display: flex;
+		}
+
+		#activity-overlay {
+			position: absolute;
+			inset: 0;
+			background: rgba(0, 0, 0, 0.4);
+		}
+
+		#activity-dialog {
+			position: absolute;
+			inset: 0;
+			background: Canvas;
+			color: CanvasText;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
+			z-index: 1;
+		}
+
+		#activity-dialog-head {
+			padding: 8px 12px;
+			border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+			font-weight: bold;
+			font-size: 11px;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+			display: flex;
+			align-items: center;
+			flex-shrink: 0;
+		}
+
+		#activity-dialog-head button {
+			margin-left: auto;
+			border: none;
+			font-size: 16px;
+			padding: 0 4px;
+			line-height: 1;
+		}
+
+		#activity-dialog-body {
+			flex: 1;
+			overflow-y: auto;
+			scrollbar-width: thin;
+			scrollbar-color: color-mix(in srgb, currentColor 20%, transparent) transparent;
+		}
+
+		.activity-list {
+			padding: 16px 0;
+			margin: 0;
+			list-style: none;
+		}
+
+		.activity-item {
+			display: grid;
+			grid-template-columns: 90px 20px 1fr;
+			gap: 0 8px;
+			min-height: 40px;
+		}
+
+		.activity-time-col {
+			text-align: right;
+			padding-top: 6px;
+		}
+
+		.activity-time {
+			font-size: 11px;
+			opacity: 0.7;
+			white-space: nowrap;
+		}
+
+		.activity-date {
+			font-size: 10px;
+			opacity: 0.35;
+		}
+
+		.activity-dot-col {
+			position: relative;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+		}
+
+		.activity-dot-col::after {
+			content: '';
+			position: absolute;
+			left: 50%;
+			top: 0;
+			bottom: 0;
+			width: 1px;
+			transform: translateX(-50%);
+			background: color-mix(in srgb, currentColor 15%, transparent);
+		}
+
+		.activity-item:first-child .activity-dot-col::after {
+			top: 13px;
+		}
+
+		.activity-item:last-child .activity-dot-col::after {
+			bottom: calc(100% - 14px);
+		}
+
+		.activity-dot {
+			width: 5px;
+			height: 5px;
+			border-radius: 50%;
+			background: CanvasText;
+			opacity: 0.35;
+			flex-shrink: 0;
+			margin-top: 11px;
+			position: relative;
+			z-index: 1;
+		}
+
+		.activity-line {
+			display: none;
+		}
+
+		.activity-content {
+			padding: 6px 0 0;
+			min-width: 0;
+		}
+
+		.activity-action {
+			font-family: ui-monospace, monospace;
+			font-size: 11px;
+		}
+
+		.activity-by {
+			font-size: 11px;
+			opacity: 0.45;
+		}
+
+		.activity-contributor {
+			font-weight: 600;
+			opacity: 1;
+		}
+
+		.activity-detail {
+			margin-top: 2px;
+			font-size: 11px;
+			opacity: 0.45;
+			font-family: ui-monospace, monospace;
+			word-break: break-all;
+		}
+
+		.activity-diff {
+			margin-top: 4px;
+			font-family: ui-monospace, monospace;
+			font-size: 11px;
+			line-height: 1.4;
+			white-space: pre-wrap;
+			word-break: break-all;
+			padding: 4px 6px;
+			background: color-mix(in srgb, currentColor 4%, transparent);
+			border-radius: 3px;
+			overflow-x: auto;
+		}
+
+		.activity-diff .diff-add {
+			color: #22863a;
+		}
+
+		.activity-diff .diff-del {
+			color: #cb2431;
+		}
+
+		.activity-diff .diff-hunk {
+			color: #6f42c1;
+			opacity: 0.7;
+		}
+
+		@media (prefers-color-scheme: dark) {
+			.activity-diff .diff-add {
+				color: #85e89d;
+			}
+
+			.activity-diff .diff-del {
+				color: #f97583;
+			}
+
+			.activity-diff .diff-hunk {
+				color: #b392f0;
+			}
+		}
+
+		.activity-diff-truncated {
+			font-size: 10px;
+			opacity: 0.5;
+			font-style: italic;
+		}
+
+		#activity-load-more {
+			width: 100%;
+			padding: 8px;
+			border: none;
+			border-top: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+			font-size: 11px;
+			text-transform: uppercase;
+			letter-spacing: 0.05em;
+			opacity: 0.6;
+		}
+
+		#activity-load-more:hover {
+			opacity: 1;
+			background: color-mix(in srgb, currentColor 5%, transparent);
 		}
 	</style>
 </head>
@@ -420,7 +656,17 @@
 			</div>
 		</section>
 	</div>
-	<div id="status"></div>
+	<div id="activity-modal">
+		<div id="activity-overlay"></div>
+		<div id="activity-dialog">
+			<div id="activity-dialog-head">Activity Log<button id="activity-close" aria-label="Close">&times;</button></div>
+			<div id="activity-dialog-body"></div>
+		</div>
+	</div>
+	<div id="status">
+		<span id="status-text"></span>
+		<button id="activity-btn" aria-label="Activity log"><i class="ph ph-pulse"></i> Activity Log</button>
+	</div>
 	<script type="module">
 		const { marked } = await import("https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js");
 		const matter = (await import("https://cdn.jsdelivr.net/npm/gray-matter@4.0.3/+esm")).default;
@@ -447,7 +693,7 @@
 		const tokenEl = $("token");
 		const filesEl = $("files");
 		const contentEl = $("content");
-		const statusEl = $("status");
+		const statusTextEl = $("status-text");
 		const backdropEl = $("backdrop");
 		const menuToggleEl = $("menu-toggle");
 
@@ -468,7 +714,7 @@
 		let token = localStorage.getItem("sv-token") || "";
 		tokenEl.value = token;
 
-		function status(msg) { statusEl.textContent = msg; }
+		function status(msg) { statusTextEl.textContent = msg; }
 
 		async function api(url, opts = {}) {
 			const res = await fetch(url, {
@@ -814,6 +1060,10 @@
 				}
 			});
 
+			evtSource.addEventListener("activity", (e) => {
+				handleActivitySSE(e);
+			});
+
 			evtSource.onerror = () => {
 				// EventSource auto-reconnects
 			};
@@ -855,6 +1105,176 @@
 			document.addEventListener("mousemove", onMove);
 			document.addEventListener("mouseup", onUp);
 		});
+
+		// --- Activity modal ---
+
+		const activityModal = $("activity-modal");
+		const activityBody = $("activity-dialog-body");
+		const ACTIVITY_PAGE_SIZE = 1000;
+		let activitySeenIds = new Set();
+		let activityOffset = 0;
+		let activityHasMore = false;
+
+		function openActivityModal() {
+			activitySeenIds = new Set();
+			activityOffset = 0;
+			activityBody.innerHTML = "";
+			activityModal.classList.add("open");
+			loadActivityPage();
+		}
+
+		function closeActivityModal() {
+			activityModal.classList.remove("open");
+		}
+
+		function handleActivitySSE(ev) {
+			if (!activityModal.classList.contains("open")) return;
+			const event = JSON.parse(ev.detail || ev.data);
+			if (activitySeenIds.has(event.id)) return;
+			activitySeenIds.add(event.id);
+			activityOffset++;
+			let list = activityBody.querySelector(".activity-list");
+			if (!list) {
+				const empty = activityBody.querySelector("p");
+				if (empty) empty.remove();
+				list = document.createElement("ul");
+				list.className = "activity-list";
+				activityBody.prepend(list);
+			}
+			list.insertAdjacentHTML("afterbegin", renderActivityItems([event]));
+		}
+
+		$("activity-btn").addEventListener("click", openActivityModal);
+		$("activity-close").addEventListener("click", closeActivityModal);
+		$("activity-overlay").addEventListener("click", closeActivityModal);
+
+		document.addEventListener("keydown", (e) => {
+			if (e.key === "Escape" && activityModal.classList.contains("open")) {
+				closeActivityModal();
+			}
+		});
+
+		function formatActivityTime(iso) {
+			if (!iso) return { time: "", date: "" };
+			const d = new Date(iso);
+			const hh = String(d.getHours()).padStart(2, "0");
+			const mm = String(d.getMinutes()).padStart(2, "0");
+			const ss = String(d.getSeconds()).padStart(2, "0");
+			const ms = String(d.getMilliseconds()).padStart(3, "0");
+			const mon = d.toLocaleString(undefined, { month: "short" });
+			const day = d.getDate();
+			const yr = d.getFullYear();
+			const now = new Date();
+			const dateStr = yr === now.getFullYear()
+				? mon + " " + day
+				: mon + " " + day + ", " + yr;
+			return {
+				time: hh + ":" + mm + ":" + ss + "." + ms,
+				date: dateStr,
+			};
+		}
+
+		function parseDetail(raw) {
+			if (!raw) return null;
+			try { return JSON.parse(raw); } catch { return null; }
+		}
+
+		function esc(str) {
+			return String(str)
+				.replace(/&/g, "&amp;")
+				.replace(/</g, "&lt;")
+				.replace(/>/g, "&gt;")
+				.replace(/"/g, "&quot;");
+		}
+
+		function formatDetail(detail) {
+			if (!detail || typeof detail !== "object") return "";
+			return Object.entries(detail)
+				.filter(([k]) => k !== "diff" && k !== "diff_truncated")
+				.map(([k, v]) => k + "=" + v)
+				.join("  ");
+		}
+
+		function renderDiff(raw) {
+			if (!raw) return "";
+			const lines = raw.split("\n");
+			const htmlLines = lines.map((line) => {
+				const escaped = esc(line);
+				if (line.startsWith("@@")) return '<span class="diff-hunk">' + escaped + '</span>';
+				if (line.startsWith("+")) return '<span class="diff-add">' + escaped + '</span>';
+				if (line.startsWith("-")) return '<span class="diff-del">' + escaped + '</span>';
+				return escaped;
+			});
+			return htmlLines.join("\n");
+		}
+
+		function renderActivityItems(events) {
+			return events.map((ev) => {
+				const { time, date } = formatActivityTime(ev.created_at);
+				const parsed = parseDetail(ev.detail);
+				const detail = formatDetail(parsed);
+				const diff = parsed?.diff || null;
+				const truncated = parsed?.diff_truncated || false;
+
+				let content = '<span class="activity-action">' + esc(ev.action) + '</span>' +
+					' <span class="activity-by">by</span>' +
+					' <span class="activity-contributor">' + esc(ev.contributor) + '</span>';
+				if (detail) content += '<div class="activity-detail">' + esc(detail) + '</div>';
+				if (diff) {
+					content += '<div class="activity-diff">' + renderDiff(diff) + '</div>';
+					if (truncated) content += '<span class="activity-diff-truncated">diff truncated</span>';
+				}
+
+				return '<li class="activity-item">' +
+					'<div class="activity-time-col">' +
+						'<div class="activity-time">' + time + '</div>' +
+						'<div class="activity-date">' + date + '</div>' +
+					'</div>' +
+					'<div class="activity-dot-col">' +
+						'<div class="activity-dot"></div>' +
+						'<div class="activity-line"></div>' +
+					'</div>' +
+					'<div class="activity-content">' + content + '</div>' +
+					'</li>';
+			}).join("");
+		}
+
+		async function loadActivityPage() {
+			const existingBtn = activityBody.querySelector("#activity-load-more");
+			if (existingBtn) existingBtn.remove();
+
+			const limit = ACTIVITY_PAGE_SIZE;
+			const offset = activityOffset;
+			const url = "/v1/activity?limit=" + (limit + 1) + "&offset=" + offset;
+			const { events } = await (await api(url)).json();
+
+			activityHasMore = events.length > limit;
+			const page = activityHasMore ? events.slice(0, limit) : events;
+			for (const ev of page) activitySeenIds.add(ev.id);
+			activityOffset += page.length;
+
+			let list = activityBody.querySelector(".activity-list");
+			if (!list) {
+				list = document.createElement("ul");
+				list.className = "activity-list";
+				activityBody.appendChild(list);
+			}
+
+			if (activitySeenIds.size === 0) {
+				activityBody.innerHTML = '<p style="padding:12px;opacity:0.5;font-size:12px">No activity.</p>';
+				return;
+			}
+
+			list.insertAdjacentHTML("beforeend", renderActivityItems(page));
+
+			if (activityHasMore) {
+				const btn = document.createElement("button");
+				btn.id = "activity-load-more";
+				btn.textContent = "Load more";
+				btn.addEventListener("click", () => loadActivityPage());
+				activityBody.appendChild(btn);
+			}
+		}
 	</script>
 </body>
 

@@ -674,3 +674,95 @@ describe("FTS5 search", () => {
     expect(results.length).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Activity Log
+// ---------------------------------------------------------------------------
+
+describe("activity log", () => {
+  test("signup created a contributor_created event", async () => {
+    const { events } = await client.listActivity({
+      action: "contributor_created",
+    });
+    expect(events.length).toBeGreaterThanOrEqual(1);
+    const match = events.find(
+      (e) => e.contributor === username && e.action === "contributor_created"
+    );
+    expect(match).toBeDefined();
+    expect(match!.id).toMatch(/^act_[0-9a-f]{12}$/);
+    const detail = JSON.parse(match!.detail!);
+    expect(detail.username).toBe(username);
+  });
+
+  test("file write creates file_upserted event", async () => {
+    const path = "activity/test-write.md";
+    await client.putFile(username, path, "# Activity test\n");
+
+    const { events } = await client.listActivity({
+      action: "file_upserted",
+      contributor: username,
+    });
+    const match = events.find((e) => {
+      if (!e.detail) return false;
+      const d = JSON.parse(e.detail);
+      return d.path === path;
+    });
+    expect(match).toBeDefined();
+  });
+
+  test("file delete creates file_deleted event", async () => {
+    const path = "activity/test-delete.md";
+    await client.putFile(username, path, "# To delete\n");
+    await client.deleteFile(username, path);
+
+    const { events } = await client.listActivity({
+      action: "file_deleted",
+      contributor: username,
+    });
+    const match = events.find((e) => {
+      if (!e.detail) return false;
+      const d = JSON.parse(e.detail);
+      return d.path === path;
+    });
+    expect(match).toBeDefined();
+  });
+
+  test("events returned in reverse chronological order", async () => {
+    const { events } = await client.listActivity();
+    for (let i = 1; i < events.length; i++) {
+      expect(events[i - 1]!.created_at >= events[i]!.created_at).toBe(true);
+    }
+  });
+
+  test("filter by contributor works", async () => {
+    const { events } = await client.listActivity({
+      contributor: username,
+    });
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) {
+      expect(e.contributor).toBe(username);
+    }
+  });
+
+  test("filter by action works", async () => {
+    const { events } = await client.listActivity({
+      action: "contributor_created",
+    });
+    expect(events.length).toBeGreaterThan(0);
+    for (const e of events) {
+      expect(e.action).toBe("contributor_created");
+    }
+  });
+
+  test("limit works", async () => {
+    const { events } = await client.listActivity({ limit: 2 });
+    expect(events.length).toBeLessThanOrEqual(2);
+  });
+
+  test("filter by nonexistent contributor returns empty", async () => {
+    const { events } = await client.listActivity({
+      contributor: "nonexistent-user",
+    });
+    expect(events.length).toBe(0);
+  });
+});
