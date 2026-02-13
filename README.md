@@ -9,8 +9,8 @@ Seedvault is a **pooled markdown sync service**. It keeps markdown files from mu
 ## Core Principles
 - **Contributor sovereignty:** Each contributor has one owner. Only the owner's daemon can write. Everyone else gets read-only access.
 - **Collection-level sync:** Contributors add collections (local folders) to sync. Everything in them syncs. No per-file permissions.
-- **Plain files on disk:** Server stores markdown as-is on the filesystem. Enables direct indexing by [QMD](https://github.com/tobi/qmd) for hybrid search (BM25 + semantic + LLM re-ranking).
-- **Unix filesystem as API:** The read API is a single shell passthrough endpoint. Agents issue `ls`, `cat`, `grep`, etc. — commands already in their training data — and get back the output. No bespoke API vocabulary to learn. The storage root is the filesystem; contributors are just directories.
+- **SQLite as source of truth:** All content and metadata lives in a single SQLite database. No filesystem mirroring, no external indexers. Full-text search via FTS5.
+- **Structured read API:** Dedicated endpoints for reading, listing, and searching files. No shell passthrough — the API is the interface.
 - **Open source, self-hostable.** Collaborator runs hosted instances for its users.
 
 ---
@@ -26,8 +26,8 @@ Vault (= the server instance)
               └── Files (identified by path within collection)
 ```
 
-- **Vault:** A single Seedvault deployment. One server, one storage root, one set of API endpoints. Auth metadata lives in SQLite; file content lives on the filesystem.
-- **Contributor:** A username-identified namespace within the vault. Each contributor has one owner and one or more contributor-scoped tokens. Contributors are the unit of write isolation — no shared contributors. Each contributor maps to a directory on disk (e.g., `<storage_root>/yiliu/`).
+- **Vault:** A single Seedvault deployment. One server, one database, one set of API endpoints. All data — content, auth, metadata — lives in SQLite.
+- **Contributor:** A username-identified namespace within the vault. Each contributor has one owner and one or more contributor-scoped tokens. Contributors are the unit of write isolation — no shared contributors.
 - **Collection:** A synced local folder within a contributor. Each collection has a local `path` and an in-vault `name` (e.g., `notes`, `work-docs`) that becomes its path prefix within the contributor. `name` defaults to the folder's basename and can be overridden to avoid collisions.
 - **Files:** Stored within a collection, identified by relative path (e.g., `notes/seedvault.md`, where `notes` is the collection name). On the server, paths are flat — there's no collection-level API, just file paths prefixed by collection name.
 
@@ -45,22 +45,15 @@ Vault (= the server instance)
 - Authenticates with a token that has `write` role scoped to its contributor
 
 **2. Server (central)**
-- Receives file updates from daemons, writes them as plain files on disk
-- Mirrors contributor/path structure: `<storage_root>/<username>/<path>`
-- Exposes the storage root as a read-only shell passthrough (`POST /v1/sh`)
+- Receives file updates from daemons, stores content and metadata in SQLite
+- Exposes structured read endpoints for file content, listing, and search
+- Full-text search via SQLite FTS5 — no external indexer
 - Pushes change events to connected consumers via SSE
-- Auth and contributor metadata in SQLite; file content on the filesystem
 - Bundles a lightweight web UI at `/` for browsing files and viewing content (requires a token)
 
-**3. QMD (search/retrieval)**
-- [QMD](https://github.com/tobi/qmd) runs alongside the server, indexing the file tree
-- Each contributor is registered as a QMD collection
-- Provides hybrid search: BM25 full-text + vector semantic + LLM re-ranking
-- Seedvault's search endpoint delegates to QMD — Seedvault does not own search
-
-**4. Consumer (read-side)**
+**3. Consumer (read-side)**
 - Any authorized client: AI agents, Collaborator/OpenClaw instance, another service, etc.
-- Issues shell commands (`ls`, `cat`, `grep`) via the `POST /v1/sh` endpoint — the vault looks like a remote filesystem
+- Reads files via `GET /v1/files/:username/*`, lists via `GET /v1/files?prefix=`, searches via `GET /v1/search`
 - Connects to SSE stream for real-time change notifications
 - Authenticates with a token (vault-wide read access)
 
@@ -68,14 +61,14 @@ Vault (= the server instance)
 
 ```
 [Machine A]              [Server]              [Agent / Consumer]
-  Daemon  ---PUT/DELETE--->  Write files
-                             to disk
+  Daemon  ---PUT/DELETE--->  Store in
+                             SQLite
                                |
-                             QMD indexes
-                             file tree
+                             FTS5 index
+                             auto-updated
                                |
                           <---SSE stream---  Consumer
-                          ---POST /v1/sh-->  (ls, cat, grep, ...)
+                          ---GET /v1/...-->  (read, list, search)
 ```
 
 ---
@@ -113,7 +106,7 @@ GET  .../contributors          → any valid token
 PUT  .../files/*               → token's username must match path prefix
 DELETE .../files/*             → token's username must match path prefix
 GET  .../files?prefix=         → any valid token
-POST .../sh                    → any valid token (read-only shell commands)
+GET  .../files/:username/*     → any valid token (read file content)
 GET  .../search?q=             → any valid token
 GET  .../events                → any valid token
 GET  /health                   → no auth
@@ -156,7 +149,7 @@ First user omits `invite`:
 }
 ```
 
-The contributor's directory is created on disk at `<storage_root>/yiliu/`, and registered as a QMD collection. The token is returned **once**.
+The contributor is created in the database. The token is returned **once**.
 
 ---
 
@@ -218,16 +211,22 @@ List all contributors. Requires any valid token.
 Requires a token scoped to the target contributor. The path's first segment must match the token's username.
 
 #### `PUT /v1/files/*path`
-Create or update a file. Full path includes the contributor username prefix (e.g., `yiliu/notes/seedvault.md`). Path must end in `.md`. Uses atomic write (temp file + rename). Max file size: **10 MB**. Concurrent writes use last-write-wins.
+Create or update a file. Full path includes the contributor username prefix (e.g., `yiliu/notes/seedvault.md`). Path must end in `.md`. Max file size: **10 MB**. Concurrent writes use last-write-wins.
+
+The client sends the original file's timestamps via headers. The server preserves these as the canonical `createdAt` and `modifiedAt` — the server is a faithful store, not a timestamp authority. On update, only `modifiedAt` changes; `createdAt` is locked in from the first write.
 
 **Request body:** Raw markdown content.
-**Headers:** `Content-Type: text/markdown`
+**Headers:**
+- `Content-Type: text/markdown`
+- `X-Origin-Ctime: <ISO 8601>` (optional — original file creation time from contributor's device)
+- `X-Origin-Mtime: <ISO 8601>` (optional — original file modification time from contributor's device)
 
 **Response: `200 OK`**
 ```json
 {
   "path": "notes/seedvault.md",
   "size": 2048,
+  "createdAt": "2026-02-10T22:05:00Z",
   "modifiedAt": "2026-02-10T22:05:00Z"
 }
 ```
@@ -250,66 +249,39 @@ Structured file listing. Returns files under a contributor prefix as JSON. Used 
 ```json
 {
   "files": [
-    { "path": "yiliu/notes/seedvault.md", "size": 2048, "modifiedAt": "2026-02-10T22:05:00Z" }
+    {
+      "path": "yiliu/notes/seedvault.md",
+      "size": 2048,
+      "createdAt": "2026-02-10T22:05:00Z",
+      "modifiedAt": "2026-02-10T22:05:00Z"
+    }
   ]
 }
 ```
 
 ---
 
-### Read (Shell Passthrough)
+### Read
 
-The primary read API. Requires any valid token.
+Structured read endpoints. Requires any valid token.
 
-#### `POST /v1/sh`
-Execute a read-only shell command in the vault's `data/files/` directory. The command runs inside the storage root, where contributors are top-level directories.
-
-**Request body:**
-```json
-{
-  "cmd": "ls yiliu/notes"
-}
-```
+#### `GET /v1/files/:username/*path`
+Read a file's content. Returns the raw markdown content as plain text.
 
 **Response: `200 OK`**
-**Body:** Command stdout as plain text.
+**Body:** File content as `text/markdown`.
 
 **Response headers:**
-- `X-Exit-Code`: The command's exit code (e.g., `0` on success)
-- `X-Stderr`: URL-encoded stderr output
-
-**Limits:** Stdout is truncated to **1 MB** (with `[truncated]` appended). Commands time out after **10 seconds**.
-
-**Allowed commands:** Only a whitelist of read-only commands is permitted: `ls`, `cat`, `head`, `tail`, `find`, `grep`, `wc`, `tree`, `stat`. Any command not on the whitelist is rejected.
-
-**Note:** Commands are executed directly (not via a shell), so shell glob expansion does not occur. Globs in arguments like `*.md` are passed literally to the command. This works for commands that handle their own patterns (`find -name`, `grep`), but not for commands that expect pre-expanded paths (`wc`, `cat` with wildcards). Use `find` + `xargs` patterns or list specific files.
+- `X-Created-At`: File creation timestamp (ISO 8601)
+- `X-Modified-At`: File modification timestamp (ISO 8601)
+- `X-Size`: File size in bytes
 
 **Examples:**
 
-```bash
-# List all contributors (top-level directories)
-{"cmd": "ls"}
-
-# List files in a contributor's collection
-{"cmd": "ls -la yiliu/notes"}
-
-# Read a file
-{"cmd": "cat yiliu/notes/seedvault.md"}
-
-# Search across all contributors
-{"cmd": "grep -r 'pooled markdown' ."}
-
-# Search within one contributor
-{"cmd": "grep -rl 'API design' yiliu/"}
-
-# Find recently modified files
-{"cmd": "find . -name '*.md' -mmin -60"}
-
-# Count lines in a specific file
-{"cmd": "wc -l yiliu/notes/seedvault.md"}
 ```
-
-**Virtual directories (future):** The interposer layer between the incoming command and execution can expose synthetic filesystem views — e.g., a `recent/` directory that lists all files across all contributors sorted by mtime, or a `search/<query>/` directory whose contents are search results. The agent doesn't need to know these are virtual.
+GET /v1/files/yiliu/notes/seedvault.md
+GET /v1/files/collin/memory/2026-02-10.md
+```
 
 ---
 
@@ -325,7 +297,7 @@ event: connected
 data: {}
 
 event: file_updated
-data: {"contributor":"yiliu","path":"notes/seedvault.md","size":2048,"modifiedAt":"2026-02-10T22:05:00Z"}
+data: {"contributor":"yiliu","path":"notes/seedvault.md","size":2048,"createdAt":"2026-02-10T22:05:00Z","modifiedAt":"2026-02-10T22:05:00Z"}
 
 event: file_deleted
 data: {"contributor":"yiliu","path":"notes/old-idea.md"}
@@ -335,10 +307,10 @@ Consumer uses these events to trigger local reindexing, cache invalidation, etc.
 
 ---
 
-### Search (QMD Proxy)
+### Search (FTS5)
 
 #### `GET /v1/search?q=`
-Hybrid search powered by QMD. Requires any valid token. Only available when QMD is installed alongside the server.
+Full-text search powered by SQLite FTS5. Requires any valid token.
 
 **Query parameters:**
 - `q` (required): Search query
@@ -348,7 +320,13 @@ Hybrid search powered by QMD. Requires any valid token. Only available when QMD 
 **Response: `200 OK`**
 ```json
 {
-  "results": [...]
+  "results": [
+    {
+      "path": "yiliu/notes/seedvault.md",
+      "snippet": "...matching text with <b>highlights</b>...",
+      "rank": -1.23
+    }
+  ]
 }
 ```
 
@@ -356,34 +334,9 @@ Hybrid search powered by QMD. Requires any valid token. Only available when QMD 
 
 ## Storage
 
-### Filesystem (content)
+### SQLite (everything)
 
-Files are stored as plain markdown on the server's filesystem, mirroring contributor and path structure:
-
-```
-<storage_root>/
-  yiliu/                 # contributor directory
-    notes/               # from ~/notes
-      seedvault.md
-      collaborator.md
-    work-docs/           # from ~/work/docs
-      api/
-        design.md
-  collin/                # another contributor
-    memory/              # from ~/memory
-      2026-02-10.md
-    journal/             # from ~/journal
-      MEMORY.md
-```
-
-- One directory per contributor under the storage root
-- Within each contributor, each collection maps to a named subdirectory
-- Intermediate directories are created on write and cleaned up on delete
-- Atomic writes via temp file + rename
-
-### SQLite (auth & metadata)
-
-A single SQLite database stores contributor records and API keys. No file content in the database.
+A single SQLite database stores all data — content, auth, and metadata. No filesystem storage.
 
 ```sql
 CREATE TABLE contributors (
@@ -408,23 +361,29 @@ CREATE TABLE invites (
   used_at TEXT,
   used_by TEXT REFERENCES contributors(username)
 );
+
+CREATE TABLE items (
+  contributor TEXT NOT NULL,
+  path TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  modified_at TEXT NOT NULL,
+  PRIMARY KEY (contributor, path),
+  FOREIGN KEY (contributor) REFERENCES contributors(username)
+);
+
+-- FTS5 virtual table for full-text search
+CREATE VIRTUAL TABLE items_fts USING fts5(
+  path, content,
+  content=items, content_rowid=rowid
+);
 ```
 
-### QMD (search & retrieval)
-
-[QMD](https://github.com/tobi/qmd) runs alongside the server and indexes the file tree directly. Each contributor is a QMD collection:
-
-```bash
-qmd collection add <storage_root>/yiliu --name yiliu --mask **/*.md
-qmd collection add <storage_root>/collin --name collin --mask **/*.md
-```
-
-QMD provides:
-- **BM25 keyword search** via FTS5
-- **Semantic vector search** via local embeddings
-- **Hybrid search with LLM re-ranking** (query expansion + RRF fusion + re-ranking)
-
-The server triggers `qmd update` after file writes to keep the index current, or QMD can run on a schedule. The search API endpoint proxies to QMD via its CLI or MCP server.
+- `created_at` and `modified_at` reflect the original file's timestamps from the contributor's device — not server receipt time
+- On INSERT, both are set from the client-provided values
+- On UPDATE (conflict), only `modified_at` changes; `created_at` is preserved
+- If the client can't provide a valid creation time (e.g., Linux without birthtime support), the server falls back to the current time on first insert
+- FTS5 index is maintained automatically via triggers on the `items` table
 
 ### Path rules
 
@@ -558,12 +517,12 @@ sv stop                    # Stop daemon and unregister service
 sv status                  # Show daemon/config/server status
 ```
 
-**File operations (reads from server via shell passthrough):**
+**File operations (reads from server via structured API):**
 ```bash
 sv ls                      # List all contributors
 sv ls yiliu/notes/         # List files under a path
 sv cat yiliu/notes/seedvault.md  # Read a file
-sv grep -r "search term" . # Search across all contributors
+sv grep "search term"      # Full-text search across all contributors
 ```
 
 **Vault:**
@@ -614,8 +573,7 @@ All paths talk to the same service API.
 
 ## Tech Stack
 
-- **Server:** TypeScript, Hono, Bun, SQLite (via `bun:sqlite` — auth & metadata only)
-- **Search:** QMD (indexes the file tree — BM25, vector, re-ranking)
+- **Server:** TypeScript, Hono, Bun, SQLite (via `bun:sqlite` — content, auth, metadata, FTS5 search)
 - **CLI/Daemon:** TypeScript, Bun, chokidar (fs watcher)
 - **Auth:** Bearer tokens, SHA-256 hashed in SQLite
 - **Deployment:** Docker (runs anywhere), Fly.io for hosted instances
@@ -637,20 +595,14 @@ All persistent state lives under `DATA_DIR`:
 
 ```
 $DATA_DIR/
-  seedvault.db          # SQLite (contributors, api_keys, invites)
-  files/                # File storage root (= the shell endpoint's working directory)
-    yiliu/
-      notes/
-        seedvault.md
-    collin/
-      ...
+  seedvault.db          # SQLite (everything — content, auth, metadata, FTS5 index)
 ```
 
-One directory to mount, one directory to back up.
+One file to mount, one file to back up.
 
 ### Docker
 
-The `Dockerfile` bundles the server, Bun runtime, and QMD. This is the universal deployment unit — runs on Fly.io, any VPS, AWS/GCP, bare metal.
+The `Dockerfile` bundles the server and Bun runtime. This is the universal deployment unit — runs on Fly.io, any VPS, AWS/GCP, bare metal.
 
 ```bash
 # Build
@@ -716,24 +668,16 @@ curl -fsSL https://seedvault.ai/uninstall-server.sh | bash
 
 The uninstaller stops the server and tunnel services, removes the package, and prompts before deleting data. Pass `--remove-data` to delete `~/.seedvault/` non-interactively.
 
-### QMD integration
+### Search
 
-QMD is installed in the Docker image alongside the server. On startup, the server:
-
-1. Initializes QMD if no index exists
-2. Registers each contributor's directory as a QMD collection
-3. After each file write/delete, triggers `qmd update` to re-index
-
-Search is available through the shell passthrough endpoint (e.g., `grep -r "query" .`) for basic text search. QMD-powered hybrid search (semantic + BM25 + re-ranking) can be exposed as a virtual directory or command in the interposer layer.
+Full-text search is built into the server via SQLite FTS5. The FTS index is maintained automatically via database triggers — no external indexer or scheduled updates.
 
 ### First boot
 
 On first start with an empty `DATA_DIR`, the server:
 
-1. Creates `DATA_DIR/files/` directory
-2. Creates `DATA_DIR/seedvault.db` with schema
-3. Initializes QMD index
-4. Waits for the first `POST /v1/signup` (no invite required — this becomes the operator)
+1. Creates `DATA_DIR/seedvault.db` with schema (including FTS5 tables and triggers)
+2. Waits for the first `POST /v1/signup` (no invite required — this becomes the operator)
 
 ---
 
@@ -767,12 +711,12 @@ All error responses use a consistent format:
 - Signup with invite system (first user is operator)
 - `sv` CLI with daemon, collection management, and vault commands
 - Curl-pipe-bash installer (`seedvault.ai/install.sh`)
-- Shell passthrough read endpoint (`POST /v1/sh`) — agents use `ls`, `cat`, `grep`, etc.
-- Dedicated write endpoints (`PUT`/`DELETE /v1/files/*`)
+- Structured read endpoints (`GET /v1/files/:username/*`, `GET /v1/files?prefix=`)
+- Write endpoints (`PUT`/`DELETE /v1/files/*`)
+- Full-text search via SQLite FTS5
 - SSE event stream
 - Contributor-scoped token auth (every token writes to its contributor, reads all)
-- Plain file storage on disk (10 MB max, last-write-wins)
-- QMD integration for search
+- SQLite storage (content + metadata, 10 MB max per file, last-write-wins)
 - Health check endpoint
 
 **Out (post-MVP):**
@@ -785,6 +729,19 @@ All error responses use a consistent format:
 - Version history / file diffing
 - Bulk sync optimization (hashing, delta transfer)
 - Session-based auth (login flow for web UI)
+
+---
+
+## Open Issues
+
+### Daemon resilience on machine restarts
+
+The sync daemon stops and does not reliably restart when the host machine reboots, particularly on OpenClaw instances. This needs to be guarded against at multiple levels:
+
+1. **OS service layer**: The launchd plist (macOS) and systemd unit (Linux) should be configured with aggressive restart policies — `KeepAlive`/`Restart=always` with bounded retry windows, not just `RunAtLoad`.
+2. **Process supervision**: The daemon itself should detect when it's supposed to be running (e.g., a sentinel file or config flag) and have a self-healing check — a periodic cron/timer that verifies the daemon is alive and restarts it if not.
+3. **Startup ordering**: On machines where the server and daemon coexist, the daemon may start before the network or server is ready. The daemon needs a startup backoff that waits for server reachability before entering the sync loop, rather than crashing on first connection failure.
+4. **Health monitoring**: `sv status` should detect "should be running but isn't" and offer `sv start` as a recovery action. Agents running on the machine should be able to self-heal by checking `sv status` and restarting if needed.
 
 ---
 
