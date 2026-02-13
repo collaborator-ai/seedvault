@@ -17,6 +17,7 @@ import { invite } from "./commands/invite.js";
 import { kick } from "./commands/kick.js";
 import { activity } from "./commands/activity.js";
 import { upgrade } from "./commands/update.js";
+import { checkForUpdates } from "./update-check.js";
 
 const USAGE = `
 Seedvault CLI
@@ -70,42 +71,67 @@ async function main(): Promise<void> {
     return;
   }
 
+  const skipUpdateCheck = cmd === "update";
+  const updateNotice = skipUpdateCheck
+    ? Promise.resolve(null)
+    : checkForUpdates();
+
   try {
     switch (cmd) {
       case "init":
-        return await init(args);
+        await init(args);
+        break;
       case "add":
-        return await add(args);
+        await add(args);
+        break;
       case "remove":
-        return await remove(args);
+        await remove(args);
+        break;
       case "collections":
-        return await collections();
+        await collections();
+        break;
       case "start":
-        return await start(args);
+        await start(args);
+        break;
       case "stop":
-        return await stop();
+        await stop();
+        break;
       case "status":
-        return await status();
+        await status();
+        break;
       case "ls":
-        return await ls(args);
+        await ls(args);
+        break;
       case "cat":
-        return await cat(args);
+        await cat(args);
+        break;
       case "grep":
-        return await grep(args);
+        await grep(args);
+        break;
       case "contributors":
-        return await contributors();
+        await contributors();
+        break;
       case "invite":
-        return await invite();
+        await invite();
+        break;
       case "kick":
-        return await kick(args);
+        await kick(args);
+        break;
       case "activity":
-        return await activity(args);
+        await activity(args);
+        break;
       case "update":
-        return await upgrade();
+        await upgrade();
+        break;
       default:
         console.error(`Unknown command: ${cmd}\n`);
         console.log(USAGE);
         process.exit(1);
+    }
+
+    const notice = await updateNotice;
+    if (notice) {
+      process.stderr.write(`\n${notice}\n`);
     }
   } catch (e: unknown) {
     console.error(`Error: ${(e as Error).message}`);
