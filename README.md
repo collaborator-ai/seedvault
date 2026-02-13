@@ -458,7 +458,7 @@ Local file:    ~/notes/seedvault.md
 Server path:   notes/seedvault.md
 ```
 
-This mirrors how [QMD](https://github.com/tobi/qmd) handles collections — each watched directory gets a unique collection name, and files within are identified by `(collection_name, relative_path)`.
+Each watched directory gets a unique collection name, and files within are identified by `(collection_name, relative_path)`.
 
 ### File filtering
 
