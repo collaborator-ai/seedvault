@@ -152,6 +152,28 @@ sv contributors
 sv invite
 ```
 
+### View activity log
+```bash
+sv activity                                    # Recent activity (default 50)
+sv activity --contributor yiliu                 # Filter by contributor
+sv activity --action file_upserted             # Filter by action type
+sv activity --limit 100                        # Limit results
+```
+
+Actions: `contributor_created`, `invite_created`, `contributor_deleted`, `file_upserted`, `file_deleted`
+
+File update events include unified diffs showing what changed.
+
+### Activity log (HTTP API)
+```bash
+curl -s "https://vault.example.com/v1/activity?limit=50&offset=0" \
+  -H "Authorization: Bearer sv_..."
+```
+
+Query params: `contributor`, `action`, `limit`, `offset`
+
+Events are also streamed in real-time via SSE (`GET /v1/events`) as `activity` events.
+
 ## Common Agent Workflows
 
 ### 1. Set up from scratch with an invite code
@@ -180,6 +202,12 @@ sv grep "query"                    # Search everything
 ```bash
 curl -s https://vault.example.com/v1/files/yiliu/notes/seedvault.md \
   -H "Authorization: Bearer sv_..."
+```
+
+### 5. Check what others have been working on
+```bash
+sv activity                          # See all recent activity with diffs
+sv activity --contributor yiliu      # See what a specific person changed
 ```
 
 ## Configuration
