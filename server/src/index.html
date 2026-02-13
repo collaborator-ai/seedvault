@@ -196,6 +196,16 @@
 			scrollbar-color: color-mix(in srgb, currentColor 20%, transparent) transparent;
 		}
 
+		.grid>.panel:last-child>.panel-body {
+			display: flex;
+			flex-direction: column;
+		}
+
+		.grid>.panel:last-child>.panel-body>#content {
+			flex: 1;
+			overflow: auto;
+		}
+
 		.panel-body::-webkit-scrollbar,
 		#content::-webkit-scrollbar {
 			width: 6px;
@@ -279,6 +289,60 @@
 
 		.tree ul.collapsed {
 			display: none;
+		}
+
+		.item-header {
+			padding: 20px 32px 16px;
+			border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+			flex-shrink: 0;
+		}
+
+		.item-header-title {
+			font-size: 22px;
+			font-weight: 600;
+			line-height: 1.3;
+		}
+
+		.item-header-path {
+			font-size: 11px;
+			font-family: ui-monospace, monospace;
+			color: color-mix(in srgb, currentColor 35%, transparent);
+			margin-bottom: 4px;
+		}
+
+		.item-header-meta {
+			display: flex;
+			flex-direction: column;
+			gap: 4px;
+			margin-top: 12px;
+			font-size: 12px;
+		}
+
+		.item-header-meta .meta-field {
+			display: flex;
+			gap: 4px;
+		}
+
+		.item-header-meta .meta-label {
+			font-weight: 600;
+			text-transform: uppercase;
+			font-size: 10px;
+			letter-spacing: 0.03em;
+			opacity: 0.7;
+			align-self: center;
+		}
+
+		.item-header-meta .meta-value {
+			font-family: ui-monospace, monospace;
+			font-size: 11px;
+		}
+
+		.item-header-meta .meta-tag {
+			display: inline-block;
+			padding: 1px 6px;
+			border-radius: 3px;
+			background: color-mix(in srgb, currentColor 8%, transparent);
+			font-size: 11px;
 		}
 
 		#content {
@@ -652,6 +716,11 @@
 		<section class="panel">
 			<div class="panel-head">Content</div>
 			<div class="panel-body">
+				<div id="item-header" class="item-header" hidden>
+					<div class="item-header-path" id="item-path"></div>
+					<div class="item-header-title" id="item-title"></div>
+					<div class="item-header-meta" id="item-meta"></div>
+				</div>
 				<div id="content"></div>
 			</div>
 		</section>
@@ -674,18 +743,21 @@
 		const morphdom = (await import("https://cdn.jsdelivr.net/npm/morphdom@2.7.4/+esm")).default;
 
 		function renderMarkdown(raw) {
-			if (typeof raw !== "string") return "";
+			if (typeof raw !== "string") return { html: "", meta: {} };
 			try {
-				const { content } = matter(raw);
+				const { content, data } = matter(raw);
 				const html = marked.parse(content);
-				return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+				return {
+					html: DOMPurify.sanitize(html, { USE_PROFILES: { html: true } }),
+					meta: data || {},
+				};
 			} catch {
 				const escaped = raw
 					.replace(/&/g, "&amp;")
 					.replace(/</g, "&lt;")
 					.replace(/>/g, "&gt;")
 					.replace(/"/g, "&quot;");
-				return "<pre>" + escaped + "</pre>";
+				return { html: "<pre>" + escaped + "</pre>", meta: {} };
 			}
 		}
 
@@ -990,6 +1062,27 @@
 			status(contributors.length + " contributor(s)");
 		}
 
+		function escapeHtml(str) {
+			return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+		}
+
+		function renderMeta(meta) {
+			const skip = new Set(["title"]);
+			const parts = [];
+			for (const [key, val] of Object.entries(meta)) {
+				if (skip.has(key) || val == null) continue;
+				const label = '<span class="meta-label">' + escapeHtml(key) + '</span>';
+				let value;
+				if (Array.isArray(val)) {
+					value = val.map((v) => '<span class="meta-tag">' + escapeHtml(v) + "</span>").join(" ");
+				} else {
+					value = '<span class="meta-value">' + escapeHtml(val) + "</span>";
+				}
+				parts.push('<span class="meta-field">' + label + " " + value + "</span>");
+			}
+			return parts.join("");
+		}
+
 		async function loadContent(username, path, row) {
 			filesEl.querySelectorAll(".tree-row").forEach((r) => r.classList.remove("active"));
 			row.classList.add("active");
@@ -1001,7 +1094,17 @@
 			const encodedPath = path.split("/").map(encodeURIComponent).join("/");
 			const res = await api("/v1/files/" + encodeURIComponent(username) + "/" + encodedPath);
 			const text = await res.text();
-			contentEl.innerHTML = renderMarkdown(text);
+			const { html, meta } = renderMarkdown(text);
+			const headerEl = $("item-header");
+			const titleEl = $("item-title");
+			const pathEl = $("item-path");
+			const metaEl = $("item-meta");
+			const fileName = path.split("/").pop().replace(/\.md$/, "");
+			titleEl.textContent = meta.title || fileName;
+			pathEl.textContent = username + ":" + path;
+			metaEl.innerHTML = renderMeta(meta);
+			headerEl.hidden = false;
+			contentEl.innerHTML = html;
 			contentEl.parentElement.scrollTop = 0;
 			status(path);
 		}
@@ -1046,7 +1149,15 @@
 					const encodedPath = path.split("/").map(encodeURIComponent).join("/");
 					api("/v1/files/" + encodeURIComponent(contributor) + "/" + encodedPath)
 						.then((res) => res.text())
-						.then((text) => { contentEl.innerHTML = renderMarkdown(text); });
+						.then((text) => {
+						const { html, meta } = renderMarkdown(text);
+						const fileName = path.split("/").pop().replace(/\.md$/, "");
+						$("item-title").textContent = meta.title || fileName;
+						$("item-path").textContent = contributor + ":" + path;
+						$("item-meta").innerHTML = renderMeta(meta);
+						$("item-header").hidden = false;
+						contentEl.innerHTML = html;
+					});
 				}
 			});
 
@@ -1055,6 +1166,7 @@
 				scheduleContributorReload(contributor);
 				// If this file was being viewed, clear the content
 				if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
+					$("item-header").hidden = true;
 					contentEl.innerHTML = "";
 					status("File deleted: " + path);
 				}
