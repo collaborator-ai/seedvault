@@ -21,7 +21,9 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@seedvault/sdk": "workspace:*"
+    "@phosphor-icons/react": "^2.1.10",
+    "@seedvault/sdk": "workspace:*",
+    "@tanstack/react-table": "^8.21.3"
   },
   "peerDependencies": {
     "react": "^19",
