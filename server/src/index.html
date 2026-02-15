@@ -117,20 +117,33 @@
 			gap: 12px;
 		}
 
-		.wordmark {
-			font-family: var(--font-display);
-			font-size: 18px;
-			font-weight: 600;
-			letter-spacing: -0.01em;
-			color: var(--accent);
-			display: flex;
-			align-items: center;
-			gap: 6px;
-			user-select: none;
+		#contributor-select {
+			font-family: var(--font-body);
+			font-size: 13px;
+			font-weight: 500;
+			padding: 6px 28px 6px 10px;
+			min-width: 120px;
+			cursor: pointer;
+			appearance: none;
+			-webkit-appearance: none;
+			background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237D7870'/%3E%3C/svg%3E");
+			background-repeat: no-repeat;
+			background-position: right 10px center;
 		}
 
-		.wordmark .ph {
-			font-size: 20px;
+		#contributor-select:focus {
+			border-color: var(--accent);
+		}
+
+		#contributor-select:disabled {
+			opacity: 0.5;
+			cursor: default;
+		}
+
+		@media (prefers-color-scheme: dark) {
+			#contributor-select {
+				background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%238E887E'/%3E%3C/svg%3E");
+			}
 		}
 
 		.top-bar-right {
@@ -952,8 +965,9 @@
 				min-width: 0;
 			}
 
-			.wordmark {
-				font-size: 16px;
+			#contributor-select {
+				min-width: 100px;
+				flex-shrink: 1;
 			}
 
 			#token {
@@ -1020,7 +1034,9 @@
 	<header class="top-bar">
 		<div class="top-bar-left">
 			<button id="menu-toggle" aria-label="Toggle navigation"><i class="ph ph-list"></i></button>
-			<div class="wordmark"><i class="ph ph-plant"></i> Seedvault</div>
+			<select id="contributor-select" disabled>
+				<option value="">Contributors</option>
+			</select>
 		</div>
 		<div class="top-bar-right">
 			<input id="token" type="password" placeholder="API key" />
@@ -1135,8 +1151,7 @@
 			return res;
 		}
 
-		const savedContributor = localStorage.getItem("sv-contributor") || "";
-		const savedFile = localStorage.getItem("sv-file") || "";
+		const selectEl = $("contributor-select");
 
 		function getExpandedKeys() {
 			try {
@@ -1281,12 +1296,6 @@
 			rows[idx].click();
 		}
 
-		function getLoadedContributorList(username) {
-			return filesEl.querySelector(
-				'ul[data-contributor="' + CSS.escape(username) + '"][data-loaded="true"]'
-			);
-		}
-
 		filesEl.addEventListener("click", (e) => {
 			const row = e.target.closest(".tree-row");
 			if (!row) return;
@@ -1306,26 +1315,13 @@
 					else keys.add(toggleKey);
 					saveExpandedKeys(keys);
 				}
-			} else if (action === "contributor") {
-				const sub = row.nextElementSibling;
-				if (!sub) return;
-				const collapsed = sub.classList.contains("collapsed");
-				const keys = getExpandedKeys();
-				const toggleKey = "contributor:" + row.dataset.contributor;
-				if (collapsed) {
-					sub.classList.remove("collapsed");
-					row.querySelector(".arrow").innerHTML = "&#9660;";
-					keys.add(toggleKey);
-				} else {
-					sub.classList.add("collapsed");
-					row.querySelector(".arrow").innerHTML = "&#9654;";
-					keys.delete(toggleKey);
-				}
-				saveExpandedKeys(keys);
 			}
 		});
 
-		async function loadContributorFiles(username, sub, opts = {}) {
+		async function loadSelectedContributor(opts = {}) {
+			const username = selectEl.value;
+			if (!username) return;
+			localStorage.setItem("sv-contributor", username);
 			const silent = !!opts.silent;
 			if (!silent) status("Loading files...");
 			const { files } = await (await api("/v1/files?prefix=" + encodeURIComponent(username + "/"))).json();
@@ -1335,24 +1331,19 @@
 				path: f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path,
 			})));
 			const tmp = document.createElement("ul");
-			renderTree(tree, tmp, username, 1);
-			if (sub.hasChildNodes()) {
-				morphdom(sub, tmp, {
+			renderTree(tree, tmp, username, 0);
+			if (filesEl.hasChildNodes()) {
+				morphdom(filesEl, tmp, {
 					childrenOnly: true,
 					getNodeKey(node) {
 						return node.dataset?.key || "";
 					},
 				});
 			} else {
-				sub.append(...tmp.childNodes);
+				filesEl.append(...tmp.childNodes);
 			}
 			markActiveRow();
-			if (!silent) status(files.length + " file(s)");
-			const row = sub.parentElement && sub.parentElement.querySelector(".tree-row");
-			if (row) {
-				const arrow = row.querySelector(".arrow").outerHTML;
-				row.innerHTML = '<span class="name">' + arrow + '<i class="ph ph-user"></i> ' + username + ' <span style="opacity:0.45;font-size:11px">' + files.length + '</span></span>';
-			}
+			status(files.length + " file(s)");
 		}
 
 		async function loadContributors() {
@@ -1361,39 +1352,38 @@
 			$("item-header").hidden = true;
 			status("Loading contributors...");
 			const { contributors } = await (await api("/v1/contributors")).json();
-			const expandedKeys = getExpandedKeys();
 
+			selectEl.innerHTML = "";
 			for (const b of contributors) {
-				const li = document.createElement("li");
-				const row = document.createElement("div");
-				row.className = "tree-row";
-				row.style.paddingLeft = "12px";
-				const sub = document.createElement("ul");
-				sub.dataset.contributor = b.username;
-				sub.dataset.loaded = "true";
-				const expanded = expandedKeys.has("contributor:" + b.username);
-				if (!expanded) sub.classList.add("collapsed");
-				const arrow = expanded ? "&#9660;" : "&#9654;";
-				row.innerHTML = '<span class="name"><span class="arrow">' + arrow + '</span><i class="ph ph-user"></i> ' + b.username + '</span>';
-				row.dataset.action = "contributor";
-				row.dataset.contributor = b.username;
-				li.appendChild(row);
-				li.appendChild(sub);
-				filesEl.appendChild(li);
+				const opt = document.createElement("option");
+				opt.value = b.username;
+				opt.textContent = b.username;
+				selectEl.appendChild(opt);
+			}
+			selectEl.disabled = contributors.length === 0;
+
+			const saved = localStorage.getItem("sv-contributor");
+			if (saved && contributors.some((c) => c.username === saved)) {
+				selectEl.value = saved;
+			} else if (contributors.length > 0) {
+				selectEl.value = contributors[0].username;
 			}
 
-			await Promise.all(contributors.map((b) => {
-				const sub = getLoadedContributorList(b.username);
-				return sub ? loadContributorFiles(b.username, sub, { silent: true }) : null;
-			}));
+			await loadSelectedContributor();
 
-			if (savedFile && savedContributor) {
+			const savedFile = localStorage.getItem("sv-file");
+			if (savedFile) {
 				const match = filesEl.querySelector('[data-path="' + CSS.escape(savedFile) + '"]');
-				if (match) await loadContent(savedContributor, savedFile, match);
+				if (match) await loadContent(selectEl.value, savedFile, match);
 			}
-
-			status(contributors.length + " contributor(s)");
 		}
+
+		selectEl.addEventListener("change", () => {
+			contentEl.innerHTML = emptyStateHTML;
+			$("item-header").hidden = true;
+			localStorage.removeItem("sv-file");
+			loadSelectedContributor().catch((e) => status(e.message));
+		});
 
 		function escapeHtml(str) {
 			return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -1453,16 +1443,15 @@
 		const contributorReloadTimers = new Map();
 
 		function scheduleContributorReload(username) {
-			if (!getLoadedContributorList(username)) return;
+			if (username !== selectEl.value) return;
 
 			const existing = contributorReloadTimers.get(username);
 			if (existing) clearTimeout(existing);
 
 			const timer = setTimeout(() => {
 				contributorReloadTimers.delete(username);
-				const targetUl = getLoadedContributorList(username);
-				if (!targetUl) return;
-				loadContributorFiles(username, targetUl, { silent: true }).catch((e) => status(e.message));
+				if (username !== selectEl.value) return;
+				loadSelectedContributor({ silent: true }).catch((e) => status(e.message));
 			}, 100);
 
 			contributorReloadTimers.set(username, timer);
