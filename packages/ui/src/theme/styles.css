@@ -1,0 +1,32 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+:root {
+  --sv-background: rgb(248, 248, 248);
+  --sv-foreground: rgb(32, 32, 32);
+  --sv-border: rgb(206, 206, 206);
+  --sv-muted: rgb(113, 113, 123);
+  --sv-muted-bg: rgb(240, 240, 240);
+  --sv-input-bg: rgb(255, 255, 255);
+  --sv-hover-bg: rgba(0, 0, 0, 0.04);
+
+  --sv-accent-note: oklch(76.8% 0.233 130.85);
+  --sv-accent-bookmark: oklch(70.5% 0.213 47.604);
+  --sv-accent-pdf: oklch(63.7% 0.237 25.331);
+  --sv-accent-concept: oklch(54.6% 0.245 262.881);
+
+  --sv-font-sans: system-ui, -apple-system, sans-serif;
+  --sv-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --sv-radius: 6px;
+  --sv-transition: 0.15s ease;
+}
+
+.dark {
+  --sv-background: rgb(18, 18, 18);
+  --sv-foreground: rgb(220, 220, 220);
+  --sv-border: rgba(255, 255, 255, 0.2);
+  --sv-muted: rgb(132, 132, 132);
+  --sv-muted-bg: rgb(30, 30, 30);
+  --sv-input-bg: rgb(28, 28, 28);
+  --sv-hover-bg: rgba(255, 255, 255, 0.06);
+}
