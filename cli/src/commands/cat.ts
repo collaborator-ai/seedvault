@@ -24,6 +24,6 @@ export async function cat(args: string[]): Promise<void> {
 
   const config = loadConfig();
   const client = createClient(config.server, config.token);
-  const content = await client.getFile(username, filePath);
-  process.stdout.write(content);
+  const file = await client.readFile(`${username}/${filePath}`);
+  process.stdout.write(file.content);
 }

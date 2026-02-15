@@ -42,14 +42,18 @@ const TEST_CONTRIBUTOR_NAME = "test-contributor";
 /** Poll until a file path appears in the contributor's file listing. */
 async function waitForFile(
   cl: SeedvaultClient,
-  username: string,
+  uname: string,
   path: string,
   timeoutMs = 5000
 ): Promise<void> {
+  const prefix = `${uname}/`;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const { files } = await cl.listFiles(username);
-    if (files.some((f) => f.path === path)) return;
+    const files = await cl.listFiles(`${uname}/`);
+    const stripped = files.map((f) =>
+      f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path
+    );
+    if (stripped.some((p) => p === path)) return;
     await Bun.sleep(100);
   }
   throw new Error(`Timed out waiting for file: ${path}`);
@@ -58,15 +62,19 @@ async function waitForFile(
 /** Poll until a file path disappears from the contributor's file listing. */
 async function waitForDelete(
   cl: SeedvaultClient,
-  username: string,
+  uname: string,
   path: string,
   timeoutMs = 5000
 ): Promise<void> {
+  const prefix = `${uname}/`;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     try {
-      const { files } = await cl.listFiles(username);
-      if (!files.some((f) => f.path === path)) return;
+      const files = await cl.listFiles(`${uname}/`);
+      const stripped = files.map((f) =>
+        f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path
+      );
+      if (!stripped.some((p) => p === path)) return;
     } catch (e) {
       if (e instanceof ApiError && e.status >= 500) continue;
       throw e;
@@ -118,21 +126,24 @@ function createSyncHandler(cl: SeedvaultClient, uname: string, collections: Coll
   return async (event: FileEvent) => {
     if (event.type === "add" || event.type === "change") {
       const content = readFileSync(event.localPath, "utf-8");
-      await cl.putFile(uname, event.serverPath, content);
+      await cl.writeFile(`${uname}/${event.serverPath}`, content);
     } else if (event.type === "unlink") {
-      await cl.deleteFile(uname, event.serverPath).catch((e) => {
+      await cl.deleteFile(`${uname}/${event.serverPath}`).catch((e) => {
         if (e instanceof ApiError && e.status === 404) return;
         throw e;
       });
     } else if (event.type === "unlinkDir") {
       const collection = collections.find((c) => c.name === event.collectionName);
       if (!collection) return;
-      // Diff server files against local to find orphans
-      const { files: serverFiles } = await cl.listFiles(uname, collection.name + "/");
+      const prefix = `${uname}/`;
+      const serverFiles = await cl.listFiles(`${uname}/${collection.name}/`);
       const localFiles = await walkMdPaths(collection.path, collection.name);
-      const orphans = serverFiles.filter((f) => !localFiles.has(f.path));
+      const orphans = serverFiles.filter((f) => {
+        const stripped = f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path;
+        return !localFiles.has(stripped);
+      });
       for (const f of orphans) {
-        await cl.deleteFile(uname, f.path).catch((e) => {
+        await cl.deleteFile(f.path).catch((e) => {
           if (e instanceof ApiError && e.status === 404) return;
           throw e;
         });
@@ -205,7 +216,7 @@ describe("API basics", () => {
   });
 
   test("GET /v1/contributors returns the created contributor", async () => {
-    const { contributors } = await client.listContributors();
+    const contributors = await client.listContributors();
     expect(contributors.length).toBeGreaterThanOrEqual(1);
     expect(contributors.some((contributor) => contributor.username === username)).toBe(true);
   });
@@ -214,52 +225,49 @@ describe("API basics", () => {
     const path = "test/hello.md";
     const content = "# Hello\n\nWorld.\n";
 
-    const putRes = await client.putFile(username, path, content);
+    const putRes = await client.writeFile(`${username}/${path}`, content);
     expect(putRes.path).toBe(path);
     expect(putRes.size).toBe(content.length);
 
-    const got = await client.getFile(username, path);
-    expect(got).toBe(content);
+    const got = await client.readFile(`${username}/${path}`);
+    expect(got.content).toBe(content);
   });
 
   test("GET file returns metadata headers", async () => {
-    const baseUrl = `http://127.0.0.1:${server.port}`;
-    const res = await fetch(`${baseUrl}/v1/files/${username}/test/hello.md`, {
-      headers: { Authorization: `Bearer ${(await client.me(), "")}` },
-    });
-    // We can't easily get the token, so test via client instead
     const path = "test/meta-check.md";
     const content = "# Meta\n";
-    await client.putFile(username, path, content);
-    const got = await client.getFile(username, path);
-    expect(got).toBe(content);
+    await client.writeFile(`${username}/${path}`, content);
+    const got = await client.readFile(`${username}/${path}`);
+    expect(got.content).toBe(content);
   });
 
   test("GET nonexistent file returns 404", async () => {
-    const err = await client.getFile(username, "nonexistent.md").catch((e) => e);
+    const err = await client.readFile(`${username}/nonexistent.md`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
 
   test("DELETE removes a file", async () => {
     const path = "test/to-delete.md";
-    await client.putFile(username, path, "bye");
-    await client.deleteFile(username, path);
+    await client.writeFile(`${username}/${path}`, "bye");
+    await client.deleteFile(`${username}/${path}`);
 
-    const err = await client.getFile(username, path).catch((e) => e);
+    const err = await client.readFile(`${username}/${path}`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
 
   test("DELETE nonexistent file returns 404", async () => {
-    const err = await client.deleteFile(username, "nonexistent.md").catch((e) => e);
+    const err = await client.deleteFile(`${username}/nonexistent.md`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
 
   test("listFiles returns uploaded files", async () => {
-    const { files } = await client.listFiles(username, "test/");
-    expect(files.some((f) => f.path === "test/hello.md")).toBe(true);
+    const files = await client.listFiles(`${username}/test/`);
+    const prefix = `${username}/`;
+    const paths = files.map((f) => f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path);
+    expect(paths.some((p) => p === "test/hello.md")).toBe(true);
   });
 
   test("second signup requires invite", async () => {
@@ -287,15 +295,16 @@ describe("API special characters", () => {
   for (const [caseLabel, path] of cases) {
     test(`roundtrips file with ${caseLabel} in path`, async () => {
       const content = `# ${caseLabel}\n\nContent for ${caseLabel} test.\n`;
-      await client.putFile(username, path, content);
-      const got = await client.getFile(username, path);
-      expect(got).toBe(content);
+      await client.writeFile(`${username}/${path}`, content);
+      const got = await client.readFile(`${username}/${path}`);
+      expect(got.content).toBe(content);
     });
   }
 
   test("listFiles includes special-char files", async () => {
-    const { files } = await client.listFiles(username, "special/");
-    const paths = files.map((f) => f.path);
+    const files = await client.listFiles(`${username}/special/`);
+    const prefix = `${username}/`;
+    const paths = files.map((f) => f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path);
     expect(paths).toContain("special/with spaces.md");
     expect(paths).toContain("special/colon: test.md");
     expect(paths).toContain("special/brackets [test].md");
@@ -305,10 +314,10 @@ describe("API special characters", () => {
 
   test("DELETE works with special characters", async () => {
     const path = "special/delete spaces.md";
-    await client.putFile(username, path, "temp");
-    await client.deleteFile(username, path);
+    await client.writeFile(`${username}/${path}`, "temp");
+    await client.deleteFile(`${username}/${path}`);
 
-    const err = await client.getFile(username, path).catch((e) => e);
+    const err = await client.readFile(`${username}/${path}`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
@@ -326,8 +335,8 @@ describe("watcher sync", () => {
     await writeFile(join(ctx.watchDir, "hello.md"), "# Hello from watcher\n");
 
     await waitForFile(client, username, `${collectionName}/hello.md`);
-    const content = await client.getFile(username, `${collectionName}/hello.md`);
-    expect(content).toBe("# Hello from watcher\n");
+    const got = await client.readFile(`${username}/${collectionName}/hello.md`);
+    expect(got.content).toBe("# Hello from watcher\n");
   });
 
   test("syncs nested subfolder file", async () => {
@@ -336,8 +345,8 @@ describe("watcher sync", () => {
     await writeFile(join(nested, "deep.md"), "# Deep\n");
 
     await waitForFile(client, username, `${collectionName}/sub/folder/deep.md`);
-    const content = await client.getFile(username, `${collectionName}/sub/folder/deep.md`);
-    expect(content).toBe("# Deep\n");
+    const got = await client.readFile(`${username}/${collectionName}/sub/folder/deep.md`);
+    expect(got.content).toBe("# Deep\n");
   });
 
   test("detects file modification", async () => {
@@ -346,8 +355,8 @@ describe("watcher sync", () => {
 
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
-      const content = await client.getFile(username, `${collectionName}/hello.md`);
-      if (content === "# Hello updated\n") return;
+      const got = await client.readFile(`${username}/${collectionName}/hello.md`);
+      if (got.content === "# Hello updated\n") return;
       await Bun.sleep(100);
     }
     throw new Error("File content did not update in time");
@@ -358,7 +367,7 @@ describe("watcher sync", () => {
 
     await waitForDelete(client, username, `${collectionName}/hello.md`);
 
-    const err = await client.getFile(username, `${collectionName}/hello.md`).catch((e) => e);
+    const err = await client.readFile(`${username}/${collectionName}/hello.md`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
@@ -384,8 +393,8 @@ describe("watcher special characters", () => {
     test(`syncs file with ${desc} via watcher`, async () => {
       await writeFile(join(ctx.watchDir, filename), content);
       await waitForFile(client, username, `${collectionName}/${filename}`);
-      const got = await client.getFile(username, `${collectionName}/${filename}`);
-      expect(got).toBe(content);
+      const got = await client.readFile(`${username}/${collectionName}/${filename}`);
+      expect(got.content).toBe(content);
     });
   }
 });
@@ -404,8 +413,8 @@ describe("watcher nested structures", () => {
     await writeFile(join(deepDir, "deep.md"), "# Deep\n");
 
     await waitForFile(client, username, `${collectionName}/a/b/c/deep.md`);
-    const content = await client.getFile(username, `${collectionName}/a/b/c/deep.md`);
-    expect(content).toBe("# Deep\n");
+    const got = await client.readFile(`${username}/${collectionName}/a/b/c/deep.md`);
+    expect(got.content).toBe("# Deep\n");
   });
 
   test("syncs multiple files at different depths simultaneously", async () => {
@@ -425,14 +434,14 @@ describe("watcher nested structures", () => {
     ]);
 
     const [root, mid, leaf] = await Promise.all([
-      client.getFile(username, `${collectionName}/root.md`),
-      client.getFile(username, `${collectionName}/x/mid.md`),
-      client.getFile(username, `${collectionName}/x/y/leaf.md`),
+      client.readFile(`${username}/${collectionName}/root.md`),
+      client.readFile(`${username}/${collectionName}/x/mid.md`),
+      client.readFile(`${username}/${collectionName}/x/y/leaf.md`),
     ]);
 
-    expect(root).toBe("# Root\n");
-    expect(mid).toBe("# Mid\n");
-    expect(leaf).toBe("# Leaf\n");
+    expect(root.content).toBe("# Root\n");
+    expect(mid.content).toBe("# Mid\n");
+    expect(leaf.content).toBe("# Leaf\n");
   });
 });
 
@@ -451,7 +460,7 @@ describe("file deletes", () => {
     await rm(join(ctx.watchDir, "doomed.md"));
     await waitForDelete(client, username, `${collectionName}/doomed.md`);
 
-    const err = await client.getFile(username, `${collectionName}/doomed.md`).catch((e) => e);
+    const err = await client.readFile(`${username}/${collectionName}/doomed.md`).catch((e) => e);
     expect(err).toBeInstanceOf(ApiError);
     expect(err.status).toBe(404);
   });
@@ -504,8 +513,8 @@ describe("file deletes", () => {
     await waitForDelete(client, username, `${collectionName}/killme/gone.md`);
 
     // keeper.md should still exist
-    const content = await client.getFile(username, `${collectionName}/keeper.md`);
-    expect(content).toBe("# Keep\n");
+    const got = await client.readFile(`${username}/${collectionName}/keeper.md`);
+    expect(got.content).toBe("# Keep\n");
   });
 });
 
@@ -518,7 +527,7 @@ describe("timestamps", () => {
     const ctime = "2024-06-15T10:30:00.000Z";
     const mtime = "2024-07-20T14:45:00.000Z";
 
-    const res = await client.putFile(username, "ts/with-headers.md", "# Timestamped\n", {
+    const res = await client.writeFile(`${username}/ts/with-headers.md`, "# Timestamped\n", {
       originCtime: ctime,
       originMtime: mtime,
     });
@@ -529,7 +538,7 @@ describe("timestamps", () => {
 
   test("PUT without headers uses server fallback", async () => {
     const before = new Date().toISOString();
-    const res = await client.putFile(username, "ts/no-headers.md", "# No headers\n");
+    const res = await client.writeFile(`${username}/ts/no-headers.md`, "# No headers\n");
     const after = new Date().toISOString();
 
     expect(res.createdAt).toBeDefined();
@@ -541,7 +550,7 @@ describe("timestamps", () => {
   test("createdAt preserved on update, modifiedAt updated", async () => {
     const ctime1 = "2024-01-01T00:00:00.000Z";
     const mtime1 = "2024-01-01T12:00:00.000Z";
-    const res1 = await client.putFile(username, "ts/update-test.md", "# V1\n", {
+    const res1 = await client.writeFile(`${username}/ts/update-test.md`, "# V1\n", {
       originCtime: ctime1,
       originMtime: mtime1,
     });
@@ -550,7 +559,7 @@ describe("timestamps", () => {
 
     const ctime2 = "2024-06-01T00:00:00.000Z";
     const mtime2 = "2024-06-15T09:00:00.000Z";
-    const res2 = await client.putFile(username, "ts/update-test.md", "# V2\n", {
+    const res2 = await client.writeFile(`${username}/ts/update-test.md`, "# V2\n", {
       originCtime: ctime2,
       originMtime: mtime2,
     });
@@ -562,8 +571,12 @@ describe("timestamps", () => {
   });
 
   test("listFiles returns timestamps", async () => {
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/with-headers.md");
+    const files = await client.listFiles(`${username}/ts/`);
+    const prefix = `${username}/`;
+    const f = files.find((f) => {
+      const stripped = f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path;
+      return stripped === "ts/with-headers.md";
+    });
     expect(f).toBeDefined();
     expect(f!.createdAt).toBe("2024-06-15T10:30:00.000Z");
     expect(f!.modifiedAt).toBe("2024-07-20T14:45:00.000Z");
@@ -571,16 +584,16 @@ describe("timestamps", () => {
 
   test("delete removes metadata, re-upload gets fresh createdAt", async () => {
     const ctime1 = "2023-01-01T00:00:00.000Z";
-    await client.putFile(username, "ts/delete-reup.md", "# First\n", {
+    await client.writeFile(`${username}/ts/delete-reup.md`, "# First\n", {
       originCtime: ctime1,
       originMtime: "2023-01-01T12:00:00.000Z",
     });
 
-    await client.deleteFile(username, "ts/delete-reup.md");
+    await client.deleteFile(`${username}/ts/delete-reup.md`);
 
     const ctime2 = "2025-01-01T00:00:00.000Z";
     const mtime2 = "2025-01-01T12:00:00.000Z";
-    const res = await client.putFile(username, "ts/delete-reup.md", "# Second\n", {
+    const res = await client.writeFile(`${username}/ts/delete-reup.md`, "# Second\n", {
       originCtime: ctime2,
       originMtime: mtime2,
     });
@@ -593,7 +606,7 @@ describe("timestamps", () => {
     const ctime = "2024-03-15T08:30:45.123Z";
     const mtime = "2024-04-20T16:15:30.456Z";
 
-    const res = await client.putFile(username, "ts/precision.md", "# Precise\n", {
+    const res = await client.writeFile(`${username}/ts/precision.md`, "# Precise\n", {
       originCtime: ctime,
       originMtime: mtime,
     });
@@ -601,8 +614,12 @@ describe("timestamps", () => {
     expect(res.createdAt).toBe(ctime);
     expect(res.modifiedAt).toBe(mtime);
 
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/precision.md");
+    const files = await client.listFiles(`${username}/ts/`);
+    const prefix = `${username}/`;
+    const f = files.find((f) => {
+      const stripped = f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path;
+      return stripped === "ts/precision.md";
+    });
     expect(f!.createdAt).toBe(ctime);
     expect(f!.modifiedAt).toBe(mtime);
   });
@@ -613,24 +630,32 @@ describe("timestamps", () => {
 
     for (let i = 0; i < 5; i++) {
       lastMtime = `2024-0${i + 1}-15T12:00:00.000Z`;
-      await client.putFile(username, "ts/rapid.md", `# Version ${i + 1}\n`, {
+      await client.writeFile(`${username}/ts/rapid.md`, `# Version ${i + 1}\n`, {
         originCtime: `2024-0${i + 1}-01T00:00:00.000Z`,
         originMtime: lastMtime,
       });
     }
 
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/rapid.md");
+    const files = await client.listFiles(`${username}/ts/`);
+    const prefix = `${username}/`;
+    const f = files.find((f) => {
+      const stripped = f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path;
+      return stripped === "ts/rapid.md";
+    });
     expect(f!.createdAt).toBe(originalCtime);
     expect(f!.modifiedAt).toBe(lastMtime);
   });
 
   test("files uploaded without headers still have fallback timestamps in listings", async () => {
     const before = new Date().toISOString();
-    await client.putFile(username, "ts/legacy.md", "# Legacy client\n");
+    await client.writeFile(`${username}/ts/legacy.md`, "# Legacy client\n");
 
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/legacy.md");
+    const files = await client.listFiles(`${username}/ts/`);
+    const prefix = `${username}/`;
+    const f = files.find((f) => {
+      const stripped = f.path.startsWith(prefix) ? f.path.slice(prefix.length) : f.path;
+      return stripped === "ts/legacy.md";
+    });
     expect(f).toBeDefined();
     expect(f!.createdAt).toBeDefined();
     expect(f!.modifiedAt).toBeDefined();
@@ -644,33 +669,33 @@ describe("timestamps", () => {
 
 describe("FTS5 search", () => {
   test("search finds content by keyword", async () => {
-    await client.putFile(username, "search/unique-keyword-test.md", "# Xylophone Orchestra\n\nPlaying melodious tunes.\n");
+    await client.writeFile(`${username}/search/unique-keyword-test.md`, "# Xylophone Orchestra\n\nPlaying melodious tunes.\n");
 
-    const { results } = await client.search("xylophone");
+    const results = await client.search("xylophone");
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results.some((r) => r.path === "search/unique-keyword-test.md")).toBe(true);
   });
 
   test("search filters by contributor", async () => {
-    const { results } = await client.search("xylophone", { contributor: username });
+    const results = await client.search("xylophone", { contributor: username });
     expect(results.length).toBeGreaterThanOrEqual(1);
     expect(results.every((r) => r.contributor === username)).toBe(true);
   });
 
   test("search respects limit", async () => {
-    const { results } = await client.search("xylophone", { limit: 1 });
+    const results = await client.search("xylophone", { limit: 1 });
     expect(results.length).toBeLessThanOrEqual(1);
   });
 
   test("search returns snippets", async () => {
-    const { results } = await client.search("melodious");
+    const results = await client.search("melodious");
     const match = results.find((r) => r.path === "search/unique-keyword-test.md");
     expect(match).toBeDefined();
     expect(match!.snippet).toContain("melodious");
   });
 
   test("search returns empty for no matches", async () => {
-    const { results } = await client.search("zzzznonexistentterm");
+    const results = await client.search("zzzznonexistentterm");
     expect(results.length).toBe(0);
   });
 });
@@ -681,7 +706,7 @@ describe("FTS5 search", () => {
 
 describe("activity log", () => {
   test("signup created a contributor_created event", async () => {
-    const { events } = await client.listActivity({
+    const events = await client.getActivity({
       action: "contributor_created",
     });
     expect(events.length).toBeGreaterThanOrEqual(1);
@@ -696,9 +721,9 @@ describe("activity log", () => {
 
   test("file write creates file_upserted event", async () => {
     const path = "activity/test-write.md";
-    await client.putFile(username, path, "# Activity test\n");
+    await client.writeFile(`${username}/${path}`, "# Activity test\n");
 
-    const { events } = await client.listActivity({
+    const events = await client.getActivity({
       action: "file_upserted",
       contributor: username,
     });
@@ -712,10 +737,10 @@ describe("activity log", () => {
 
   test("file delete creates file_deleted event", async () => {
     const path = "activity/test-delete.md";
-    await client.putFile(username, path, "# To delete\n");
-    await client.deleteFile(username, path);
+    await client.writeFile(`${username}/${path}`, "# To delete\n");
+    await client.deleteFile(`${username}/${path}`);
 
-    const { events } = await client.listActivity({
+    const events = await client.getActivity({
       action: "file_deleted",
       contributor: username,
     });
@@ -728,14 +753,14 @@ describe("activity log", () => {
   });
 
   test("events returned in reverse chronological order", async () => {
-    const { events } = await client.listActivity();
+    const events = await client.getActivity();
     for (let i = 1; i < events.length; i++) {
       expect(events[i - 1]!.created_at >= events[i]!.created_at).toBe(true);
     }
   });
 
   test("filter by contributor works", async () => {
-    const { events } = await client.listActivity({
+    const events = await client.getActivity({
       contributor: username,
     });
     expect(events.length).toBeGreaterThan(0);
@@ -745,7 +770,7 @@ describe("activity log", () => {
   });
 
   test("filter by action works", async () => {
-    const { events } = await client.listActivity({
+    const events = await client.getActivity({
       action: "contributor_created",
     });
     expect(events.length).toBeGreaterThan(0);
@@ -755,12 +780,12 @@ describe("activity log", () => {
   });
 
   test("limit works", async () => {
-    const { events } = await client.listActivity({ limit: 2 });
+    const events = await client.getActivity({ limit: 2 });
     expect(events.length).toBeLessThanOrEqual(2);
   });
 
   test("filter by nonexistent contributor returns empty", async () => {
-    const { events } = await client.listActivity({
+    const events = await client.getActivity({
       contributor: "nonexistent-user",
     });
     expect(events.length).toBe(0);

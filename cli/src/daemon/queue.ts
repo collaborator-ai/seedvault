@@ -77,9 +77,9 @@ export class RetryQueue {
           const opts = op.originCtime || op.originMtime
             ? { originCtime: op.originCtime ?? undefined, originMtime: op.originMtime ?? undefined }
             : undefined;
-          await this.client.putFile(op.username, op.serverPath, op.content, opts);
+          await this.client.writeFile(`${op.username}/${op.serverPath}`, op.content, opts);
         } else if (op.type === "delete") {
-          await this.client.deleteFile(op.username, op.serverPath);
+          await this.client.deleteFile(`${op.username}/${op.serverPath}`);
         }
 
         // Success — remove from queue and reset backoff

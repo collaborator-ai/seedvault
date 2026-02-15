@@ -50,12 +50,8 @@ export async function status(): Promise<void> {
 
   // Server connectivity
   const client = createClient(config.server, config.token);
-  try {
-    await client.health();
-    console.log("  Server:  reachable");
-  } catch {
-    console.log("  Server:  unreachable");
-  }
+  const isReachable = await client.health();
+  console.log(`  Server:  ${isReachable ? "reachable" : "unreachable"}`);
 
   console.log();
 }

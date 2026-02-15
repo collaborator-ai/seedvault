@@ -74,12 +74,16 @@ export class Syncer {
   private async purgeOrphans(): Promise<number> {
     let deleted = 0;
 
-    const { files: allServerFiles } = await this.client.listFiles(this.username);
+    const allServerFiles = await this.client.listFiles(`${this.username}/`);
     const collectionNames = new Set(this.collections.map((c) => c.name));
+    const usernamePrefix = `${this.username}/`;
 
     const orphans = allServerFiles.filter((f) => {
-      const prefix = f.path.split("/")[0];
-      return !collectionNames.has(prefix);
+      const withoutUser = f.path.startsWith(usernamePrefix)
+        ? f.path.slice(usernamePrefix.length)
+        : f.path;
+      const collectionName = withoutUser.split("/")[0];
+      return !collectionNames.has(collectionName);
     });
 
     if (orphans.length === 0) return 0;
@@ -88,7 +92,7 @@ export class Syncer {
 
     await pooled(orphans, SYNC_CONCURRENCY, async (f) => {
       try {
-        await this.client.deleteFile(this.username, f.path);
+        await this.client.deleteFile(f.path);
         deleted++;
       } catch {
         this.queue.enqueue({
@@ -119,15 +123,19 @@ export class Syncer {
 
     try {
       // Get server file listing for this collection's prefix
-      const { files: serverFiles } = await this.client.listFiles(
-        this.username,
-        collection.name + "/"
+      const serverFiles = await this.client.listFiles(
+        `${this.username}/${collection.name}/`
       );
 
-      // Build a map of server files by path -> FileEntry
+      // Strip username prefix for internal path comparison
+      const usernamePrefix = `${this.username}/`;
+      const stripPrefix = (p: string): string =>
+        p.startsWith(usernamePrefix) ? p.slice(usernamePrefix.length) : p;
+
+      // Build a map of server files by path (without username prefix) -> FileEntry
       const serverMap = new Map<string, FileEntry>();
       for (const f of serverFiles) {
-        serverMap.set(f.path, f);
+        serverMap.set(stripPrefix(f.path), f);
       }
 
       // Phase 1: Prepare — read local files and decide what to upload
@@ -159,7 +167,7 @@ export class Syncer {
       // Phase 2: Upload with bounded concurrency
       await pooled(toUpload, SYNC_CONCURRENCY, async (item) => {
         try {
-          await this.client.putFile(this.username, item.serverPath, item.content, {
+          await this.client.writeFile(`${this.username}/${item.serverPath}`, item.content, {
             originCtime: item.originCtime,
             originMtime: item.originMtime,
           });
@@ -178,18 +186,20 @@ export class Syncer {
       });
 
       // Phase 3: Delete server files that no longer exist locally
-      const toDelete = serverFiles.filter((f) => !localServerPaths.has(f.path));
+      const toDelete = serverFiles.filter((f) => !localServerPaths.has(stripPrefix(f.path)));
       await pooled(toDelete, SYNC_CONCURRENCY, async (f) => {
         try {
-          await this.client.deleteFile(this.username, f.path);
+          await this.client.deleteFile(f.path);
           deleted++;
         } catch {
           this.queue.enqueue({
             type: "delete",
             username: this.username,
-            serverPath: f.path,
+            serverPath: stripPrefix(f.path),
             content: null,
             queuedAt: new Date().toISOString(),
+            originCtime: null,
+            originMtime: null,
           });
         }
       });
@@ -215,22 +225,27 @@ export class Syncer {
     this.log(`Removing '${collection.name}' files from server...`);
 
     try {
-      const { files: serverFiles } = await this.client.listFiles(
-        this.username,
-        collection.name + "/"
+      const serverFiles = await this.client.listFiles(
+        `${this.username}/${collection.name}/`
       );
 
       await pooled(serverFiles, SYNC_CONCURRENCY, async (f) => {
         try {
-          await this.client.deleteFile(this.username, f.path);
+          await this.client.deleteFile(f.path);
           deleted++;
         } catch {
+          const usernamePrefix = `${this.username}/`;
+          const stripped = f.path.startsWith(usernamePrefix)
+            ? f.path.slice(usernamePrefix.length)
+            : f.path;
           this.queue.enqueue({
             type: "delete",
             username: this.username,
-            serverPath: f.path,
+            serverPath: stripped,
             content: null,
             queuedAt: new Date().toISOString(),
+            originCtime: null,
+            originMtime: null,
           });
           queued++;
         }
@@ -324,18 +339,23 @@ export class Syncer {
    */
   private async reconcileCollection(collection: CollectionConfig): Promise<void> {
     this.log(`Reconciling '${collection.name}' after directory change...`);
-    const { files: serverFiles } = await this.client.listFiles(
-      this.username,
-      collection.name + "/"
+    const serverFiles = await this.client.listFiles(
+      `${this.username}/${collection.name}/`
     );
     if (serverFiles.length === 0) return;
 
+    const usernamePrefix = `${this.username}/`;
     const localFiles = await walkMd(collection.path).catch(() => [] as LocalFile[]);
     const localServerPaths = new Set(
       localFiles.map((f) => `${collection.name}/${toPosixPath(relative(collection.path, f.path))}`)
     );
 
-    const orphans = serverFiles.filter((f) => !localServerPaths.has(f.path));
+    const orphans = serverFiles.filter((f) => {
+      const stripped = f.path.startsWith(usernamePrefix)
+        ? f.path.slice(usernamePrefix.length)
+        : f.path;
+      return !localServerPaths.has(stripped);
+    });
     if (orphans.length === 0) return;
 
     this.log(`  Deleting ${orphans.length} orphaned file(s)`);

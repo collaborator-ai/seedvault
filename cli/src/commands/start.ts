@@ -39,9 +39,8 @@ async function startForeground(): Promise<void> {
   let client = createClient(config.server, config.token);
 
   // Verify server reachable
-  try {
-    await client.health();
-  } catch {
+  const reachable = await client.health();
+  if (!reachable) {
     console.error(`Cannot reach server at ${config.server}`);
     process.exit(1);
   }
@@ -113,7 +112,8 @@ async function startForeground(): Promise<void> {
 
     watcher = createWatcher(collections, (event: FileEvent) => {
       syncer.handleEvent(event).catch((e) => {
-        log(`Error handling ${event.type} for ${event.serverPath}: ${(e as Error).message}`);
+        const detail = "serverPath" in event ? event.serverPath : event.collectionName;
+        log(`Error handling ${event.type} for ${detail}: ${(e as Error).message}`);
       });
     });
     log(`Watching ${collections.length} collection(s): ${collections.map((f) => f.name).join(", ")}`);

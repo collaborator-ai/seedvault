@@ -27,7 +27,7 @@ export async function kick(args: string[]): Promise<void> {
   const config = loadConfig();
   const client = createClient(config.server, config.token);
 
-  const { files } = await client.listFiles(username);
+  const files = await client.listFiles(`${username}/`);
 
   const ok = await confirm(
     `Delete contributor "${username}" and ${files.length} file(s)? [y/N] `

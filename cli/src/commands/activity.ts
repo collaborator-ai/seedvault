@@ -28,7 +28,7 @@ export async function activity(args: string[]): Promise<void> {
 
   const config = loadConfig();
   const client = createClient(config.server, config.token);
-  const { events } = await client.listActivity({
+  const events = await client.getActivity({
     contributor,
     action,
     limit,

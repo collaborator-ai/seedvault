@@ -33,7 +33,7 @@ export async function grep(args: string[]): Promise<void> {
 
   const config = loadConfig();
   const client = createClient(config.server, config.token);
-  const { results } = await client.search(query, { contributor, limit });
+  const results = await client.search(query, { contributor, limit });
 
   for (const r of results) {
     const snippet = r.snippet.replace(/<\/?b>/g, "");

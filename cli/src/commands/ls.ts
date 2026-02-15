@@ -12,8 +12,8 @@ export async function ls(args: string[]): Promise<void> {
   const client = createClient(config.server, config.token);
 
   if (args.length === 0) {
-    const { contributors } = await client.listContributors();
-    for (const c of contributors) {
+    const allContributors = await client.listContributors();
+    for (const c of allContributors) {
       console.log(c.username);
     }
     return;
@@ -22,10 +22,13 @@ export async function ls(args: string[]): Promise<void> {
   const input = args[0];
   const slashIdx = input.indexOf("/");
   const username = slashIdx === -1 ? input : input.slice(0, slashIdx);
-  const prefix = slashIdx === -1 ? undefined : input.slice(slashIdx + 1) || undefined;
+  const prefix = slashIdx === -1 ? "" : input.slice(slashIdx + 1) || "";
 
-  const { files } = await client.listFiles(username, prefix);
+  const files = await client.listFiles(`${username}/${prefix}`);
   for (const f of files) {
-    console.log(f.path);
+    const displayPath = f.path.startsWith(`${username}/`)
+      ? f.path.slice(username.length + 1)
+      : f.path;
+    console.log(displayPath);
   }
 }

@@ -49,9 +49,8 @@ export async function init(args: string[]): Promise<void> {
   // Non-interactive: --server + --name (signup)
   if (flags.server && flags.name) {
     const client = createClient(flags.server);
-    try {
-      await client.health();
-    } catch {
+    const reachable = await client.health();
+    if (!reachable) {
       console.error(`Could not reach server at ${flags.server}`);
       process.exit(1);
     }
@@ -93,13 +92,12 @@ export async function init(args: string[]): Promise<void> {
 
     // Verify server is reachable
     const client = createClient(server);
-    try {
-      await client.health();
-      console.log("  Server is reachable.\n");
-    } catch {
+    const isReachable = await client.health();
+    if (!isReachable) {
       console.error(`  Could not reach server at ${server}`);
       process.exit(1);
     }
+    console.log("  Server is reachable.\n");
 
     const hasToken = await rl.question("Do you already have a token? (y/N): ");
 

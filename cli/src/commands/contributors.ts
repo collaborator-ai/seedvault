@@ -10,15 +10,15 @@ export async function contributors(): Promise<void> {
   const config = loadConfig();
   const client = createClient(config.server, config.token);
 
-  const { contributors } = await client.listContributors();
+  const allContributors = await client.listContributors();
 
-  if (contributors.length === 0) {
+  if (allContributors.length === 0) {
     console.log("No contributors in the vault.");
     return;
   }
 
   console.log("Contributors:\n");
-  for (const contributor of contributors) {
+  for (const contributor of allContributors) {
     const you = contributor.username === config.username ? " (you)" : "";
     console.log(`  ${contributor.username}${you}`);
     console.log(`    Created: ${new Date(contributor.createdAt).toLocaleString()}`);
