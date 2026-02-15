@@ -15,7 +15,7 @@ import type { FileEntry } from "@seedvault/sdk";
 
 interface VaultTableProps {
   files: FileEntry[];
-  selectedPath?: string;
+  selectedPath?: string | undefined;
   onSelect: (path: string) => void;
   onDelete?: (path: string) => void;
 }

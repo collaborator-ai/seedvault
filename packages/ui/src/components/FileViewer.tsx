@@ -29,11 +29,12 @@ export function FileViewer({
 
   const handleChange = useCallback(() => {
     if (!onChange) return;
+    const cb = onChange;
     async function convert() {
       const md = await editor.blocksToMarkdownLossy(
         editor.document,
       );
-      onChange!(md);
+      cb(md);
     }
     void convert();
   }, [editor, onChange]);
@@ -47,7 +48,8 @@ export function FileViewer({
       }}
     >
       <BlockNoteView
-        editor={editor}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- BlockNote types incompatible with exactOptionalPropertyTypes
+        editor={editor as any}
         editable={editable}
         onChange={handleChange}
       />

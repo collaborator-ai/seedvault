@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { SeedvaultClient } from "@seedvault/sdk";
 import {
   SeedvaultProvider,
@@ -8,11 +8,15 @@ import {
   useSeedvault,
   useVaultFiles,
   useFileContent,
+  useVaultEvents,
 } from "@seedvault/ui";
+
+const STORAGE_KEY_TOKEN = "sv-token";
+const STORAGE_KEY_FILE = "sv-file";
 
 export function App() {
   const [token, setToken] = useState<string | null>(
-    localStorage.getItem("sv-token"),
+    localStorage.getItem(STORAGE_KEY_TOKEN),
   );
 
   const client = useMemo(() => {
@@ -28,7 +32,7 @@ export function App() {
       <AuthGate
         baseUrl={window.location.origin}
         onAuthenticated={(t) => {
-          localStorage.setItem("sv-token", t);
+          localStorage.setItem(STORAGE_KEY_TOKEN, t);
           setToken(t);
         }}
       />
@@ -43,21 +47,55 @@ export function App() {
 }
 
 function VaultApp() {
-  const client = useSeedvault();
+  const { client } = useSeedvault();
   const [selectedPath, setSelectedPath] = useState<
     string | null
-  >(null);
+  >(localStorage.getItem(STORAGE_KEY_FILE));
   const [username, setUsername] = useState<string | null>(
     null,
   );
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    client.me().then((me) => setUsername(me.username));
+    client
+      .me()
+      .then((me) => setUsername(me.username))
+      .catch((err: unknown) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to load user",
+        );
+      });
   }, [client]);
 
+  const handleSelectPath = useCallback(
+    (path: string | null) => {
+      setSelectedPath(path);
+      if (path) {
+        localStorage.setItem(STORAGE_KEY_FILE, path);
+      } else {
+        localStorage.removeItem(STORAGE_KEY_FILE);
+      }
+    },
+    [],
+  );
+
   const prefix = username ? `${username}/` : undefined;
-  const { files } = useVaultFiles(prefix);
+  const { files, refresh } = useVaultFiles(prefix);
   const { file } = useFileContent(selectedPath);
+
+  useVaultEvents(() => {
+    refresh();
+  });
+
+  if (error) {
+    return (
+      <p style={{ color: "var(--sv-error)", padding: 24 }}>
+        {error}
+      </p>
+    );
+  }
 
   if (!username) {
     return (
@@ -86,7 +124,7 @@ function VaultApp() {
         <VaultTable
           files={files}
           selectedPath={selectedPath ?? undefined}
-          onSelect={setSelectedPath}
+          onSelect={handleSelectPath}
         />
       </div>
       <div
