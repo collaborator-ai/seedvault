@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { serveStatic } from "hono/bun";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import {
@@ -31,8 +32,9 @@ import {
 import { broadcast, addClient, removeClient } from "./sse.js";
 import { computeDiff } from "./diff.js";
 
-const uiPath = resolve(import.meta.dirname, "index.html");
-const isDev = process.env.NODE_ENV !== "production";
+const uiDistPath = import.meta.dirname.endsWith("src")
+	? resolve(import.meta.dirname, "..", "dist", "ui")
+	: resolve(import.meta.dirname, "ui");
 
 function logActivity(
 	contributor: string,
@@ -42,7 +44,6 @@ function logActivity(
 	const event = createActivityEvent(contributor, action, detail);
 	broadcast("activity", event);
 }
-const uiHtmlCached = readFileSync(uiPath, "utf-8");
 
 /**
  * Extract username and file path from a /v1/files/* request path.
@@ -69,8 +70,14 @@ function extractFileInfo(
 export function createApp(): Hono {
 	const app = new Hono();
 
+	app.use("/assets/*", serveStatic({ root: uiDistPath }));
+
 	app.get("/", (c) => {
-		return c.html(isDev ? readFileSync(uiPath, "utf-8") : uiHtmlCached);
+		const html = readFileSync(
+			resolve(uiDistPath, "index.html"),
+			"utf-8",
+		);
+		return c.html(html);
 	});
 
 	// --- Health (no auth) ---
