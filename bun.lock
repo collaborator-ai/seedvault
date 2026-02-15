@@ -7,7 +7,7 @@
     },
     "cli": {
       "name": "@seedvault/cli",
-      "version": "0.1.0",
+      "version": "0.5.1",
       "bin": {
         "sv": "./src/index.ts",
       },
@@ -23,9 +23,17 @@
       "name": "@seedvault/electron",
       "version": "0.1.0",
     },
+    "packages/sdk": {
+      "name": "@seedvault/sdk",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/bun": "latest",
+        "typescript": "^5",
+      },
+    },
     "server": {
       "name": "@seedvault/server",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "hono": "^4",
       },
@@ -39,6 +47,8 @@
     "@seedvault/cli": ["@seedvault/cli@workspace:cli"],
 
     "@seedvault/electron": ["@seedvault/electron@workspace:electron"],
+
+    "@seedvault/sdk": ["@seedvault/sdk@workspace:packages/sdk"],
 
     "@seedvault/server": ["@seedvault/server@workspace:server"],
 
