@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 import { resolve } from "path";
 import {
 	createContributor,
@@ -35,6 +35,12 @@ import { computeDiff } from "./diff.js";
 const uiDistPath = import.meta.dirname.endsWith("src")
 	? resolve(import.meta.dirname, "..", "dist", "ui")
 	: resolve(import.meta.dirname, "ui");
+
+const isDev = process.env.NODE_ENV !== "production";
+const uiIndexPath = resolve(uiDistPath, "index.html");
+const uiHtmlCached = existsSync(uiIndexPath)
+	? readFileSync(uiIndexPath, "utf-8")
+	: null;
 
 function logActivity(
 	contributor: string,
@@ -73,10 +79,10 @@ export function createApp(): Hono {
 	app.use("/assets/*", serveStatic({ root: uiDistPath }));
 
 	app.get("/", (c) => {
-		const html = readFileSync(
-			resolve(uiDistPath, "index.html"),
-			"utf-8",
-		);
+		const html = isDev
+			? readFileSync(uiIndexPath, "utf-8")
+			: uiHtmlCached;
+		if (!html) return c.text("UI not built. Run: bun run build", 500);
 		return c.html(html);
 	});
 

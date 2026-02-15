@@ -1,10 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { SeedvaultClient } from "@seedvault/sdk";
 import {
   SeedvaultProvider,
   VaultTable,
   FileViewer,
   AuthGate,
+  useSeedvault,
   useVaultFiles,
   useFileContent,
 } from "@seedvault/ui";
@@ -42,11 +43,29 @@ export function App() {
 }
 
 function VaultApp() {
+  const client = useSeedvault();
   const [selectedPath, setSelectedPath] = useState<
     string | null
   >(null);
-  const { files } = useVaultFiles();
+  const [username, setUsername] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    client.me().then((me) => setUsername(me.username));
+  }, [client]);
+
+  const prefix = username ? `${username}/` : undefined;
+  const { files } = useVaultFiles(prefix);
   const { file } = useFileContent(selectedPath);
+
+  if (!username) {
+    return (
+      <p style={{ color: "var(--sv-muted)", padding: 24 }}>
+        Loading...
+      </p>
+    );
+  }
 
   return (
     <div
