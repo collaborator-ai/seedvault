@@ -11,6 +11,7 @@ import { createClient } from "../client.js";
 import { createWatcher, type FileEvent } from "../daemon/watcher.js";
 import { Syncer } from "../daemon/syncer.js";
 import { installService } from "../daemon/service.js";
+import { writeHealthFile } from "../api/health.js";
 
 /**
  * sv start [-f]
@@ -88,15 +89,35 @@ async function startForeground(): Promise<void> {
     onLog: log,
   });
 
+  let serverConnected = true;
+  let lastSyncAt: string | null = null;
+
+  const updateHealth = () => {
+    writeHealthFile({
+      running: true,
+      serverConnected,
+      serverUrl: config.server,
+      username: config.username,
+      pendingOps: syncer.pendingOps,
+      collectionsWatched: config.collections.length,
+      lastSyncAt,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
   // Initial sync (always run — even with no collections, purgeOrphans
   // needs to clean up files from previously-removed collections)
   log("Running initial sync...");
   try {
     const { uploaded, skipped, deleted } = await syncer.initialSync();
     log(`Initial sync complete: ${uploaded} uploaded, ${skipped} skipped, ${deleted} deleted`);
+    lastSyncAt = new Date().toISOString();
+    updateHealth();
   } catch (e: unknown) {
     log(`Initial sync failed: ${(e as Error).message}`);
     log("Will continue watching for changes...");
+    serverConnected = false;
+    updateHealth();
   }
 
   let watcher: FSWatcher | null = null;
@@ -113,7 +134,8 @@ async function startForeground(): Promise<void> {
 
     watcher = createWatcher(collections, (event: FileEvent) => {
       syncer.handleEvent(event).catch((e) => {
-        log(`Error handling ${event.type} for ${event.serverPath}: ${(e as Error).message}`);
+        const label = "serverPath" in event ? event.serverPath : event.collectionName;
+        log(`Error handling ${event.type} for ${label}: ${(e as Error).message}`);
       });
     });
     log(`Watching ${collections.length} collection(s): ${collections.map((f) => f.name).join(", ")}`);
@@ -212,14 +234,30 @@ async function startForeground(): Promise<void> {
     })();
   }, 1500);
 
+  const healthTimer = setInterval(() => {
+    updateHealth();
+  }, 5000);
+
   log("Daemon running. Press Ctrl+C to stop.");
 
   // Handle graceful shutdown
   const shutdown = () => {
     log("Shutting down...");
     clearInterval(pollTimer);
+    clearInterval(healthTimer);
     if (watcher) void watcher.close();
     syncer.stop();
+
+    writeHealthFile({
+      running: false,
+      serverConnected: false,
+      serverUrl: config.server,
+      username: config.username,
+      pendingOps: 0,
+      collectionsWatched: 0,
+      lastSyncAt,
+      updatedAt: new Date().toISOString(),
+    });
 
     // Clean up PID file
     try {

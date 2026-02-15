@@ -5,8 +5,15 @@
   "bin": {
     "sv": "bin/sv.mjs"
   },
+  "exports": {
+    ".": {
+      "import": "./dist/api/index.js",
+      "types": "./dist/api/index.d.ts"
+    }
+  },
+  "types": "dist/api/index.d.ts",
   "scripts": {
-    "build": "bun build src/index.ts --outfile dist/sv.js --target bun",
+    "build": "tsc && bun build src/index.ts --outfile dist/sv.js --target bun",
     "dev": "bun run src/index.ts",
     "check": "tsc --noEmit",
     "prepublishOnly": "bun run build"
@@ -21,6 +28,7 @@
     "directory": "cli"
   },
   "dependencies": {
+    "@seedvault/sdk": "workspace:*",
     "chokidar": "^4"
   },
   "devDependencies": {

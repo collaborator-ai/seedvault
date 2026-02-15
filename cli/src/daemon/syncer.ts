@@ -190,6 +190,8 @@ export class Syncer {
             serverPath: f.path,
             content: null,
             queuedAt: new Date().toISOString(),
+            originCtime: null,
+            originMtime: null,
           });
         }
       });
@@ -231,6 +233,8 @@ export class Syncer {
             serverPath: f.path,
             content: null,
             queuedAt: new Date().toISOString(),
+            originCtime: null,
+            originMtime: null,
           });
           queued++;
         }

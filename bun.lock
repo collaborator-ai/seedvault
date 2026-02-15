@@ -9,9 +9,10 @@
       "name": "@seedvault/cli",
       "version": "0.5.1",
       "bin": {
-        "sv": "./src/index.ts",
+        "sv": "bin/sv.mjs",
       },
       "dependencies": {
+        "@seedvault/sdk": "workspace:*",
         "chokidar": "^4",
       },
       "devDependencies": {
