@@ -155,8 +155,7 @@ describe("API exports", () => {
 
     // Client
     expect(typeof api.createClient).toBe("function");
-    expect(typeof api.SeedvaultClient).toBe("function");
-    expect(typeof api.SeedvaultError).toBe("function");
+    expect(typeof api.ApiError).toBe("function");
   });
 });
 

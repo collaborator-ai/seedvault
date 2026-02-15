@@ -7,12 +7,11 @@
     },
     "cli": {
       "name": "@seedvault/cli",
-      "version": "0.5.1",
+      "version": "0.6.0",
       "bin": {
         "sv": "bin/sv.mjs",
       },
       "dependencies": {
-        "@seedvault/sdk": "workspace:*",
         "chokidar": "^4",
       },
       "devDependencies": {

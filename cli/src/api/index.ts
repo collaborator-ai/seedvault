@@ -35,19 +35,17 @@ export { getDaemonHealth, writeHealthFile } from "./health.js";
 export type { DaemonHealth } from "./health.js";
 
 // Client
-export {
-  createClient,
-  SeedvaultClient,
-  SeedvaultError,
-} from "./client.js";
+export { createClient, ApiError } from "./client.js";
 
 export type {
-  SeedvaultClientOptions,
+  SeedvaultClient,
   FileEntry,
-  FileContent,
+  PutFileOptions,
   SearchResult,
   SearchOptions,
-  VaultEvent,
-  VaultEventType,
-  PutFileOptions,
+  SearchResponse,
+  ActivityEvent,
+  ActivityOptions,
+  ActivityResponse,
+  HealthResponse,
 } from "./client.js";
