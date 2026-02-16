@@ -27,6 +27,8 @@ export interface SeedvaultClient {
   listActivity(opts?: ActivityOptions): Promise<ActivityResponse>;
   /** GET /health */
   health(): Promise<HealthResponse>;
+  /** GET /v1/events — subscribe to real-time SSE events */
+  subscribe(opts?: SubscribeOptions): AsyncGenerator<VaultEvent>;
 }
 
 // --- Response types ---
@@ -111,6 +113,23 @@ export interface HealthResponse {
   status: string;
 }
 
+// --- SSE subscription types ---
+
+export interface SubscribeOptions {
+  /** Filter to a specific contributor. Omit for all. */
+  contributor?: string;
+  /** Filter to specific actions. Omit for all. */
+  actions?: Array<"file_write" | "file_delete">;
+}
+
+export interface VaultEvent {
+  id: string;
+  action: "file_write" | "file_delete";
+  contributor: string;
+  path: string;
+  timestamp: string;
+}
+
 // --- Error ---
 
 export class ApiError extends Error {
@@ -127,6 +146,84 @@ export class ApiError extends Error {
 /** Encode each path segment individually, preserving slashes */
 function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
+}
+
+/** Map server SSE event names to VaultEvent action names */
+const SSE_ACTION_MAP: Record<string, "file_write" | "file_delete"> = {
+  file_updated: "file_write",
+  file_deleted: "file_delete",
+};
+
+async function* parseSSEStream(
+  body: ReadableStream<Uint8Array>,
+  opts: SubscribeOptions | undefined,
+  controller: AbortController,
+): AsyncGenerator<VaultEvent> {
+  const decoder = new TextDecoder();
+  const reader = body.getReader();
+  let buffer = "";
+  let eventType = "";
+  let dataLines: string[] = [];
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!;
+
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
+          dataLines.push(line.slice(6));
+        } else if (line === "" && eventType && dataLines.length > 0) {
+          const action = SSE_ACTION_MAP[eventType];
+          if (action) {
+            let data: Record<string, unknown>;
+            try {
+              data = JSON.parse(dataLines.join("\n"));
+            } catch {
+              eventType = "";
+              dataLines = [];
+              continue;
+            }
+            const event: VaultEvent = {
+              id: (data.id as string) ?? "",
+              action,
+              contributor: (data.contributor as string) ?? "",
+              path: (data.path as string) ?? "",
+              timestamp:
+                (data.modifiedAt as string) ??
+                (data.created_at as string) ??
+                new Date().toISOString(),
+            };
+
+            const passContributor =
+              !opts?.contributor ||
+              event.contributor === opts.contributor;
+            const passAction =
+              !opts?.actions ||
+              opts.actions.includes(event.action);
+
+            if (passContributor && passAction) {
+              yield event;
+            }
+          }
+          eventType = "";
+          dataLines = [];
+        } else if (line === "") {
+          eventType = "";
+          dataLines = [];
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+    controller.abort();
+  }
 }
 
 export function createClient(serverUrl: string, token?: string): SeedvaultClient {
@@ -256,6 +353,55 @@ export function createClient(serverUrl: string, token?: string): SeedvaultClient
     async health(): Promise<HealthResponse> {
       const res = await request("GET", "/health", { auth: false });
       return res.json();
+    },
+
+    async *subscribe(
+      opts?: SubscribeOptions,
+    ): AsyncGenerator<VaultEvent> {
+      const MAX_BACKOFF = 60_000;
+      let backoff = 1_000;
+
+      while (true) {
+        const controller = new AbortController();
+        let res: Response;
+
+        try {
+          const headers: Record<string, string> = {};
+          if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+          }
+
+          res = await fetch(`${base}/v1/events`, {
+            headers,
+            signal: controller.signal,
+          });
+
+          if (!res.ok) {
+            throw new ApiError(res.status, res.statusText);
+          }
+        } catch {
+          if (controller.signal.aborted) return;
+          await new Promise((r) => setTimeout(r, backoff));
+          backoff = Math.min(backoff * 2, MAX_BACKOFF);
+          continue;
+        }
+
+        backoff = 1_000;
+
+        try {
+          yield* parseSSEStream(res.body!, opts, controller);
+        } catch {
+          if (controller.signal.aborted) return;
+          await new Promise((r) => setTimeout(r, backoff));
+          backoff = Math.min(backoff * 2, MAX_BACKOFF);
+          continue;
+        }
+
+        // Stream ended without error (server closed) — reconnect
+        if (controller.signal.aborted) return;
+        await new Promise((r) => setTimeout(r, backoff));
+        backoff = Math.min(backoff * 2, MAX_BACKOFF);
+      }
     },
   };
 }
