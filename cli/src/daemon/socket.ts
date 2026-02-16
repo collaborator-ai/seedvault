@@ -2,7 +2,7 @@ import { createServer, type Socket } from "net";
 import { existsSync, unlinkSync } from "fs";
 
 export interface DaemonFileEvent {
-  action: "file_write" | "file_delete" | "dir_delete";
+  action: "file_write" | "file_delete";
   path: string;
   collection: string;
   timestamp: string;

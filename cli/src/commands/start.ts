@@ -346,13 +346,6 @@ function fileEventToDaemonEvent(
         timestamp,
       };
     }
-    case "unlinkDir":
-      return {
-        action: "dir_delete",
-        path: event.localPath,
-        collection: event.collectionName,
-        timestamp,
-      };
     default:
       return null;
   }

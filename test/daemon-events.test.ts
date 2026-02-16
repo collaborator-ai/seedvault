@@ -88,34 +88,6 @@ describe("subscribeDaemonEvents", () => {
     expect(events[0]!.timestamp).toBe("2026-01-15T00:00:00Z");
   });
 
-  test("handles dir_delete events", async () => {
-    const path = uniqueSocketPath();
-    const dirDeleteEvent: DaemonFileEvent = {
-      action: "dir_delete",
-      path: "archive/old-folder",
-      collection: "archive",
-      timestamp: "2026-01-15T00:02:00Z",
-    };
-
-    const server = createServer((socket) => {
-      socket.write(JSON.stringify(dirDeleteEvent) + "\n");
-      setTimeout(() => socket.end(), 50);
-    });
-    servers.push(server);
-
-    await new Promise<void>((res) => server.listen(path, res));
-
-    const events: DaemonFileEvent[] = [];
-    for await (const event of subscribeDaemonEvents(path)) {
-      events.push(event);
-    }
-
-    expect(events).toHaveLength(1);
-    expect(events[0]!.action).toBe("dir_delete");
-    expect(events[0]!.path).toBe("archive/old-folder");
-    expect(events[0]!.collection).toBe("archive");
-  });
-
   test("generator cleanup closes connection", async () => {
     const path = uniqueSocketPath();
     let clientDisconnected = false;
