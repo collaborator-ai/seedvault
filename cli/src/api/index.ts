@@ -18,6 +18,17 @@ export type {
   NormalizeCollectionsResult,
 } from "./config.js";
 
+// Service
+export {
+  getServiceStatus,
+  installService,
+  uninstallService,
+  restartService,
+  ensureDaemonRunning,
+} from "./service.js";
+
+export type { ServiceStatus } from "./service.js";
+
 // Health
 export { getDaemonHealth, writeHealthFile } from "./health.js";
 
@@ -41,7 +52,3 @@ export type {
   VaultEvent,
 } from "./client.js";
 
-// Daemon events
-export { subscribeDaemonEvents } from "./daemon-events.js";
-
-export type { DaemonFileEvent } from "./daemon-events.js";

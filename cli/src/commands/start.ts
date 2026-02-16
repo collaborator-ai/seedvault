@@ -3,7 +3,6 @@ import type { FSWatcher } from "chokidar";
 import {
   loadConfig,
   getPidPath,
-  getDaemonSocketPath,
   normalizeConfigCollections,
   type CollectionConfig,
   type Config,
@@ -13,7 +12,6 @@ import { createWatcher, type FileEvent } from "../daemon/watcher.js";
 import { Syncer } from "../daemon/syncer.js";
 import { installService } from "../daemon/service.js";
 import { writeHealthFile } from "../api/health.js";
-import { createDaemonSocket, type DaemonSocketServer, type DaemonFileEvent } from "../daemon/socket.js";
 
 /**
  * sv start [-f]
@@ -139,17 +137,9 @@ async function startForeground(): Promise<void> {
         const label = "serverPath" in event ? event.serverPath : event.collectionName;
         log(`Error handling ${event.type} for ${label}: ${(e as Error).message}`);
       });
-
-      const socketEvent = fileEventToDaemonEvent(event);
-      if (socketEvent) {
-        socketServer.broadcast(socketEvent);
-      }
     });
     log(`Watching ${collections.length} collection(s): ${collections.map((f) => f.name).join(", ")}`);
   };
-
-  const socketServer = await createDaemonSocket(getDaemonSocketPath());
-  log(`Event socket listening at ${getDaemonSocketPath()}`);
 
   await rebuildWatcher(config.collections);
 
@@ -257,7 +247,6 @@ async function startForeground(): Promise<void> {
     clearInterval(healthTimer);
     if (watcher) void watcher.close();
     syncer.stop();
-    void socketServer.close();
 
     writeHealthFile({
       running: false,
@@ -321,32 +310,3 @@ function reconcileCollections(
   return { nextConfig: next, added, removed };
 }
 
-function fileEventToDaemonEvent(
-  event: FileEvent,
-): DaemonFileEvent | null {
-  const timestamp = new Date().toISOString();
-
-  switch (event.type) {
-    case "add":
-    case "change": {
-      const collection = event.serverPath.split("/")[0];
-      return {
-        action: "file_write",
-        path: event.serverPath,
-        collection,
-        timestamp,
-      };
-    }
-    case "unlink": {
-      const collection = event.serverPath.split("/")[0];
-      return {
-        action: "file_delete",
-        path: event.serverPath,
-        collection,
-        timestamp,
-      };
-    }
-    default:
-      return null;
-  }
-}

@@ -1,6 +1,6 @@
 {
 	"name": "@seedvault/cli",
-	"version": "0.8.1",
+	"version": "0.9.0",
 	"type": "module",
 	"bin": {
 		"sv": "bin/sv.mjs"
@@ -26,19 +26,13 @@
 			"import": "./dist/api/service.js",
 			"default": "./dist/api/service.js"
 		},
-		"./daemon-events": {
-			"types": "./dist/api/daemon-events.d.ts",
-			"import": "./dist/api/daemon-events.js",
-			"default": "./dist/api/daemon-events.js"
-		}
 	},
 	"types": "dist/api/index.d.ts",
 	"typesVersions": {
 		"*": {
 			"client": ["dist/api/client.d.ts"],
 			"health": ["dist/api/health.d.ts"],
-			"service": ["dist/api/service.d.ts"],
-			"daemon-events": ["dist/api/daemon-events.d.ts"]
+			"service": ["dist/api/service.d.ts"]
 		}
 	},
 	"scripts": {
