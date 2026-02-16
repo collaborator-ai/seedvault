@@ -1,6 +1,6 @@
 # Seedvault
 
-![Seedvault web UI](seedvault-content-view.png)
+![Seedvault web UI](seedvault-screenshot.png)
 
 ## What Is It
 Seedvault is a **pooled markdown sync service**. It keeps markdown files from multiple contributors in sync with a central server, and provides real-time read access to authorized consumers.
