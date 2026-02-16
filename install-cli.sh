@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Seedvault CLI installer
-# Usage: curl -fsSL https://seedvault.ai/install-cli.sh | bash
-#    or: curl -fsSL https://seedvault.ai/install-cli.sh | bash -s -- --no-onboard
+# Usage: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash
+#    or: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash -s -- --no-onboard
 
 INSTALLER_VERSION="0.2.0"
 PACKAGE_NAME="@seedvault/cli"
@@ -26,8 +26,8 @@ for arg in "$@"; do
 Seedvault CLI installer
 
 Usage:
-  curl -fsSL https://seedvault.ai/install-cli.sh | bash
-  curl -fsSL https://seedvault.ai/install-cli.sh | bash -s -- [options]
+  curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash -s -- [options]
 
 Options:
   --no-onboard   Skip interactive onboarding (for CI / agents)

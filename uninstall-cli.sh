@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Seedvault CLI uninstaller
-# Usage: curl -fsSL https://seedvault.ai/uninstall-cli.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh | bash
 
 UNINSTALLER_VERSION="0.2.0"
 PACKAGE_NAME="@seedvault/cli"
@@ -22,8 +22,8 @@ for arg in "$@"; do
 Seedvault CLI uninstaller
 
 Usage:
-  curl -fsSL https://seedvault.ai/uninstall-cli.sh | bash
-  curl -fsSL https://seedvault.ai/uninstall-cli.sh | bash -s -- [options]
+  curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh | bash -s -- [options]
 
 Options:
   --keep-config  Keep config files (~/.config/seedvault/)

@@ -1,7 +1,56 @@
-# Seedvault – Design Doc
+# Seedvault
+
+![Seedvault web UI](seedvault-content-view.png)
 
 ## What Is It
 Seedvault is a **pooled markdown sync service**. It keeps markdown files from multiple contributors in sync with a central server, and provides real-time read access to authorized consumers.
+
+## Install
+
+### CLI
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash
+```
+
+Uninstall:
+```bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh | bash
+```
+
+### Server (self-hosted macOS)
+
+One command to install Bun, the server, and a launchd service that auto-starts on boot:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash
+```
+
+Options: `--tunnel=quick` (instant public URL), `--tunnel-token=<TOKEN>` (stable URL), `--no-tunnel` (local only), `--port=<PORT>`.
+
+Uninstall:
+```bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-server.sh | bash
+```
+
+### Server (Fly.io)
+
+```bash
+cd server
+fly launch
+fly volumes create seedvault_data --size 10
+fly deploy
+```
+
+### Server (Docker)
+
+```bash
+cd server
+docker build -t seedvault .
+docker run -p 3000:3000 -v seedvault-data:/data -e DATA_DIR=/data seedvault
+```
+
+---
 
 ## Core Principles
 - **Contributor sovereignty:** Each contributor has one owner. Only the owner's daemon can write. Everyone else gets read-only access.
