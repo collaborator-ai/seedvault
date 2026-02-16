@@ -25,6 +25,11 @@
 			"types": "./dist/api/service.d.ts",
 			"import": "./dist/api/service.js",
 			"default": "./dist/api/service.js"
+		},
+		"./daemon-events": {
+			"types": "./dist/api/daemon-events.d.ts",
+			"import": "./dist/api/daemon-events.js",
+			"default": "./dist/api/daemon-events.js"
 		}
 	},
 	"types": "dist/api/index.d.ts",
@@ -32,7 +37,8 @@
 		"*": {
 			"client": ["dist/api/client.d.ts"],
 			"health": ["dist/api/health.d.ts"],
-			"service": ["dist/api/service.d.ts"]
+			"service": ["dist/api/service.d.ts"],
+			"daemon-events": ["dist/api/daemon-events.d.ts"]
 		}
 	},
 	"scripts": {

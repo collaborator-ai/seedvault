@@ -156,6 +156,9 @@ describe("API exports", () => {
     // Client
     expect(typeof api.createClient).toBe("function");
     expect(typeof api.ApiError).toBe("function");
+
+    // Daemon events
+    expect(typeof api.subscribeDaemonEvents).toBe("function");
   });
 });
 

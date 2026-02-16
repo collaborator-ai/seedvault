@@ -40,3 +40,8 @@ export type {
   SubscribeOptions,
   VaultEvent,
 } from "./client.js";
+
+// Daemon events
+export { subscribeDaemonEvents } from "./daemon-events.js";
+
+export type { DaemonFileEvent } from "./daemon-events.js";
