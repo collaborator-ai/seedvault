@@ -620,7 +620,9 @@ sv status                  # Show daemon/config/server status
 sv ls                      # List all contributors
 sv ls yiliu/notes/         # List files under a path
 sv cat yiliu/notes/seedvault.md  # Read a file
-sv grep "search term"      # Full-text search across all contributors
+sv grep "search term"                    # Full-text search across all contributors
+sv grep "search term" --contributor yiliu  # Restrict search to one contributor
+sv grep "search term" --limit 5            # Limit number of results
 ```
 
 **Vault:**
