@@ -84,7 +84,7 @@ Every token has the same permissions:
 - **Read** files from any contributor
 - **List** contributors, search, subscribe to SSE events
 
-The first contributor created (via signup without invite) is the **admin**. The admin can generate invite codes for others.
+The first contributor created (via signup without invite) is the **admin**. The admin can generate invite codes, and remove (kick) contributors.
 
 ### Token storage
 
@@ -103,11 +103,13 @@ POST .../signup                → no auth (requires invite code, except first u
 GET  .../me                    → any valid token (returns token's username)
 POST .../invites               → admin only
 GET  .../contributors          → any valid token
+DELETE .../contributors/:user  → admin only (cannot delete self)
 PUT  .../files/*               → token's username must match path prefix
 DELETE .../files/*             → token's username must match path prefix
 GET  .../files?prefix=         → any valid token
 GET  .../files/:username/*     → any valid token (read file content)
 GET  .../search?q=             → any valid token
+GET  .../activity              → any valid token
 GET  .../events                → any valid token
 GET  /health                   → no auth
 ```
@@ -206,6 +208,41 @@ List all contributors. Requires any valid token.
 
 ---
 
+#### `DELETE /v1/contributors/:username`
+Remove a contributor and all their files, API keys, and activity. Requires admin token. The admin cannot delete themselves.
+
+**Response: `204 No Content`**
+
+---
+
+### Activity Log
+
+#### `GET /v1/activity`
+View the activity log. Requires any valid token. Returns events in reverse chronological order.
+
+**Query parameters:**
+- `contributor` (optional): Filter to a single contributor
+- `action` (optional): Filter by action type (e.g., `file_upserted`, `file_deleted`, `contributor_created`, `contributor_deleted`, `invite_created`)
+- `limit` (optional): Max results (default 50)
+- `offset` (optional): Skip N results for pagination
+
+**Response: `200 OK`**
+```json
+{
+  "events": [
+    {
+      "id": "act_a1b2c3d4e5f6",
+      "contributor": "yiliu",
+      "action": "file_upserted",
+      "detail": "{\"path\":\"notes/seedvault.md\",\"size\":2048,\"diff\":\"...\"}",
+      "created_at": "2026-02-10T22:05:00Z"
+    }
+  ]
+}
+```
+
+---
+
 ### Write (Daemon → Server)
 
 Requires a token scoped to the target contributor. The path's first segment must match the token's username.
@@ -234,7 +271,7 @@ The client sends the original file's timestamps via headers. The server preserve
 ---
 
 #### `DELETE /v1/files/*path`
-Delete a file from disk. Path includes contributor prefix. Removes empty parent directories.
+Delete a file. Path includes contributor prefix.
 
 **Response: `204 No Content`**
 
@@ -297,10 +334,13 @@ event: connected
 data: {}
 
 event: file_updated
-data: {"contributor":"yiliu","path":"notes/seedvault.md","size":2048,"createdAt":"2026-02-10T22:05:00Z","modifiedAt":"2026-02-10T22:05:00Z"}
+data: {"contributor":"yiliu","path":"notes/seedvault.md","size":2048,"modifiedAt":"2026-02-10T22:05:00Z"}
 
 event: file_deleted
 data: {"contributor":"yiliu","path":"notes/old-idea.md"}
+
+event: activity
+data: {"id":"act_a1b2c3d4e5f6","contributor":"yiliu","action":"file_upserted","detail":"{...}","created_at":"2026-02-10T22:05:00Z"}
 ```
 
 Consumer uses these events to trigger local reindexing, cache invalidation, etc.
@@ -322,7 +362,8 @@ Full-text search powered by SQLite FTS5. Requires any valid token.
 {
   "results": [
     {
-      "path": "yiliu/notes/seedvault.md",
+      "contributor": "yiliu",
+      "path": "notes/seedvault.md",
       "snippet": "...matching text with <b>highlights</b>...",
       "rank": -1.23
     }
@@ -372,6 +413,17 @@ CREATE TABLE items (
   FOREIGN KEY (contributor) REFERENCES contributors(username)
 );
 
+CREATE TABLE activity (
+  id TEXT PRIMARY KEY,
+  contributor TEXT NOT NULL REFERENCES contributors(username),
+  action TEXT NOT NULL,
+  detail TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_activity_contributor ON activity(contributor);
+CREATE INDEX idx_activity_created_at ON activity(created_at);
+CREATE INDEX idx_activity_action ON activity(action);
+
 -- FTS5 virtual table for full-text search
 CREATE VIRTUAL TABLE items_fts USING fts5(
   path, content,
@@ -400,7 +452,7 @@ Paths are relative to the contributor root. Always forward slashes, never a lead
 - `notes//seedvault.md` (double slash)
 - `` (empty)
 
-The server validates all paths on write **before** touching the filesystem. This is a security boundary — paths map directly to disk.
+The server validates all paths on write. This is a security boundary.
 
 ---
 
@@ -529,6 +581,14 @@ sv grep "search term"      # Full-text search across all contributors
 ```bash
 sv contributors            # List all contributors
 sv invite                  # Generate an invite code (admin only)
+sv kick <username>         # Remove a contributor and their files (admin only)
+sv activity                # View activity log
+sv activity --contributor yiliu --action file_upserted --limit 20
+```
+
+**Maintenance:**
+```bash
+sv update                  # Update CLI to latest version
 ```
 
 ### Configuration
@@ -718,14 +778,15 @@ All error responses use a consistent format:
 - Contributor-scoped token auth (every token writes to its contributor, reads all)
 - SQLite storage (content + metadata, 10 MB max per file, last-write-wins)
 - Health check endpoint
+- Activity log with diffs (`GET /v1/activity`, `sv activity`)
+- Contributor deletion / kick (`DELETE /v1/contributors/:username`, `sv kick`)
+- Web UI at `/` for browsing files and viewing content
 
 **Out (post-MVP):**
 - E2E encryption
 - Multi-vault server (multiple vaults per deployment)
 - Read-only tokens (consumers without a contributor)
 - Token revocation
-- Contributor deletion
-- Web UI for vault management
 - Version history / file diffing
 - Bulk sync optimization (hashing, delta transfer)
 - Session-based auth (login flow for web UI)
