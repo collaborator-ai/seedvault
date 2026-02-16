@@ -25,7 +25,7 @@
 			"types": "./dist/api/service.d.ts",
 			"import": "./dist/api/service.js",
 			"default": "./dist/api/service.js"
-		},
+		}
 	},
 	"types": "dist/api/index.d.ts",
 	"typesVersions": {
