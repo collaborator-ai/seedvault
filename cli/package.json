@@ -1,6 +1,6 @@
 {
 	"name": "@seedvault/cli",
-	"version": "0.6.1",
+	"version": "0.7.0",
 	"type": "module",
 	"bin": {
 		"sv": "bin/sv.mjs"
@@ -10,9 +10,31 @@
 			"types": "./dist/api/index.d.ts",
 			"import": "./dist/api/index.js",
 			"default": "./dist/api/index.js"
+		},
+		"./client": {
+			"types": "./dist/api/client.d.ts",
+			"import": "./dist/api/client.js",
+			"default": "./dist/api/client.js"
+		},
+		"./health": {
+			"types": "./dist/api/health.d.ts",
+			"import": "./dist/api/health.js",
+			"default": "./dist/api/health.js"
+		},
+		"./service": {
+			"types": "./dist/api/service.d.ts",
+			"import": "./dist/api/service.js",
+			"default": "./dist/api/service.js"
 		}
 	},
 	"types": "dist/api/index.d.ts",
+	"typesVersions": {
+		"*": {
+			"client": ["dist/api/client.d.ts"],
+			"health": ["dist/api/health.d.ts"],
+			"service": ["dist/api/service.d.ts"]
+		}
+	},
 	"scripts": {
 		"build": "tsc && bun build src/index.ts --outfile dist/sv.js --target bun",
 		"dev": "bun run src/index.ts",
