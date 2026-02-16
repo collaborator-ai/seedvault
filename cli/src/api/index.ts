@@ -37,4 +37,6 @@ export type {
   ActivityOptions,
   ActivityResponse,
   HealthResponse,
+  SubscribeOptions,
+  VaultEvent,
 } from "./client.js";
