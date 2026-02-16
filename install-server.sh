@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Seedvault Server installer (macOS)
-# Usage: curl -fsSL https://seedvault.ai/install-server.sh | bash
-#    or: curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- [options]
+# Usage: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash
+#    or: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash -s -- [options]
 
 INSTALLER_VERSION="0.1.0"
 PACKAGE_NAME="@seedvault/server"
@@ -40,8 +40,8 @@ for arg in "$@"; do
 Seedvault Server installer (macOS)
 
 Usage:
-  curl -fsSL https://seedvault.ai/install-server.sh | bash
-  curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- [options]
+  curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash -s -- [options]
 
 Options:
   --tunnel=quick       Use Cloudflare quick tunnel (URL changes on restart)

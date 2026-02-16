@@ -525,7 +525,7 @@ The `sv` command is the unified CLI for Seedvault — daemon management, collect
 ### Installation
 
 ```bash
-curl -fsSL https://seedvault.ai/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash
 ```
 
 The installer:
@@ -536,7 +536,7 @@ The installer:
 
 For agents and CI (non-interactive):
 ```bash
-curl -fsSL https://seedvault.ai/install.sh | bash -s -- --no-onboard
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash -s -- --no-onboard
 sv init --server https://vault.example.com --token sv_...
 ```
 
@@ -619,10 +619,10 @@ electron/   # Desktop app — bundles the daemon
 
 | User | Install | Sync |
 |------|---------|------|
-| **Humans (CLI)** | `curl -fsSL https://seedvault.ai/install.sh \| bash` | `sv start` |
+| **Humans (CLI)** | `curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh \| bash` | `sv start` |
 | **Humans (desktop)** | Seedvault app (Electron) | Bundled in app |
 | **Humans (web)** | Web app | N/A (reads from service directly) |
-| **Self-hosted server** | `curl -fsSL https://seedvault.ai/install-server.sh \| bash` | launchd service |
+| **Self-hosted server** | `curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh \| bash` | launchd service |
 | **Agents** (OpenClaw, Collaborator, etc.) | Install script, non-interactive | `sv start` |
 | **Collaborator users** | Built into Collaborator | Built into Collaborator |
 
@@ -685,7 +685,7 @@ For running the server on a personal machine (e.g., a Mac Mini) with optional pu
 
 **Install:**
 ```bash
-curl -fsSL https://seedvault.ai/install-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash
 ```
 
 The installer:
@@ -699,16 +699,16 @@ Data is stored at `~/.seedvault/data`, logs at `~/.seedvault/server.log`.
 **Options:**
 ```bash
 # Non-interactive with quick tunnel (random URL, changes on restart)
-curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --tunnel=quick
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash -s -- --tunnel=quick
 
 # Non-interactive with tunnel token (stable URL)
-curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --tunnel-token=<TOKEN>
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash -s -- --tunnel-token=<TOKEN>
 
 # Local only, custom port
-curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --no-tunnel --port=8080
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash -s -- --no-tunnel --port=8080
 
 # Update server to latest version (preserves tunnel config)
-curl -fsSL https://seedvault.ai/install-server.sh | bash -s -- --update
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-server.sh | bash -s -- --update
 ```
 
 **Management:**
@@ -720,7 +720,7 @@ curl http://localhost:3000/health     # Verify it's running
 
 **Uninstall:**
 ```bash
-curl -fsSL https://seedvault.ai/uninstall-server.sh | bash
+curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-server.sh | bash
 ```
 
 The uninstaller stops the server and tunnel services, removes the package, and prompts before deleting data. Pass `--remove-data` to delete `~/.seedvault/` non-interactively.
@@ -767,7 +767,7 @@ All error responses use a consistent format:
 - Vault with multiple contributors (one per contributor)
 - Signup with invite system (first user is admin)
 - `sv` CLI with daemon, collection management, and vault commands
-- Curl-pipe-bash installer (`seedvault.ai/install.sh`)
+- Curl-pipe-bash installer (`install-cli.sh`)
 - Structured read endpoints (`GET /v1/files/:username/*`, `GET /v1/files?prefix=`)
 - Write endpoints (`PUT`/`DELETE /v1/files/*`)
 - Full-text search via SQLite FTS5
