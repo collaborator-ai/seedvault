@@ -1,8 +1,5 @@
 # Seedvault – Design Doc
 
-## Product Context
-**Collaborator** is a full-stack agent product — a fork of OpenClaw plus a set of open-source libraries. Seedvault is one of these libraries.
-
 ## What Is It
 Seedvault is a **pooled markdown sync service**. It keeps markdown files from multiple contributors in sync with a central server, and provides real-time read access to authorized consumers.
 
