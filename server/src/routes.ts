@@ -261,9 +261,8 @@ export function createApp(): Hono {
 
 		const content = await c.req.text();
 
-		const now = new Date().toISOString();
-		const originCtime = c.req.header("X-Origin-Ctime") || now;
-		const originMtime = c.req.header("X-Origin-Mtime") || now;
+		const originCtime = c.req.header("X-Origin-Ctime") || undefined;
+		const originMtime = c.req.header("X-Origin-Mtime") || undefined;
 
 		const existing = getItem(parsed.username, parsed.filePath);
 

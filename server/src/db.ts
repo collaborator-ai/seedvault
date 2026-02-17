@@ -355,7 +355,12 @@ export function upsertItem(
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (contributor, path) DO UPDATE SET
          content = excluded.content,
-         modified_at = excluded.modified_at`
+         modified_at = excluded.modified_at,
+         created_at = CASE
+           WHEN excluded.created_at < items.created_at
+           THEN excluded.created_at
+           ELSE items.created_at
+         END`
     )
     .run(contributor, path, content, createdAt, modifiedAt);
 

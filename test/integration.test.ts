@@ -555,9 +555,32 @@ describe("timestamps", () => {
       originMtime: mtime2,
     });
 
-    // createdAt preserved from first upload
+    // createdAt preserved from first upload (newer ctime does not overwrite)
     expect(res2.createdAt).toBe(ctime1);
     // modifiedAt updated to second upload's value
+    expect(res2.modifiedAt).toBe(mtime2);
+  });
+
+  test("older ctime corrects created_at on update", async () => {
+    // First upload with a recent ctime (e.g., server fallback or wrong value)
+    const wrongCtime = "2025-06-01T00:00:00.000Z";
+    const mtime1 = "2025-06-01T12:00:00.000Z";
+    const res1 = await client.putFile(username, "ts/ctime-fix.md", "# V1\n", {
+      originCtime: wrongCtime,
+      originMtime: mtime1,
+    });
+    expect(res1.createdAt).toBe(wrongCtime);
+
+    // Second upload with the file's real (older) ctime
+    const realCtime = "2024-01-15T08:00:00.000Z";
+    const mtime2 = "2025-06-02T09:00:00.000Z";
+    const res2 = await client.putFile(username, "ts/ctime-fix.md", "# V2\n", {
+      originCtime: realCtime,
+      originMtime: mtime2,
+    });
+
+    // created_at updated to the older (correct) value
+    expect(res2.createdAt).toBe(realCtime);
     expect(res2.modifiedAt).toBe(mtime2);
   });
 
