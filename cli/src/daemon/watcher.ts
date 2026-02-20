@@ -15,7 +15,8 @@ export type EventHandler = (event: FileEvent) => void;
  */
 export function createWatcher(
   collections: CollectionConfig[],
-  onEvent: EventHandler
+  onEvent: EventHandler,
+  onError?: (error: Error) => void
 ): FSWatcher {
   // Build the paths to watch
   const paths = collections.map((f) => f.path);
@@ -50,6 +51,13 @@ export function createWatcher(
       pollInterval: 100,
     },
   });
+
+  if (onError) {
+    watcher.on("error", (err: unknown) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      onError(error);
+    });
+  }
 
   // Build a lookup: absolute collection path -> collection name
   const collectionMap = new Map<string, string>();

@@ -11,7 +11,9 @@ export interface DaemonHealth {
   username: string | null;
   pendingOps: number;
   collectionsWatched: number;
+  watcherAlive: boolean;
   lastSyncAt: string | null;
+  lastReconcileAt: string | null;
   updatedAt: string;
 }
 

@@ -91,6 +91,7 @@ async function startForeground(): Promise<void> {
 
   let serverConnected = true;
   let lastSyncAt: string | null = null;
+  let lastReconcileAt: string | null = null;
 
   const updateHealth = () => {
     writeHealthFile({
@@ -100,7 +101,9 @@ async function startForeground(): Promise<void> {
       username: config.username,
       pendingOps: syncer.pendingOps,
       collectionsWatched: config.collections.length,
+      watcherAlive: watcher !== null && !watcher.closed,
       lastSyncAt,
+      lastReconcileAt,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -132,12 +135,22 @@ async function startForeground(): Promise<void> {
       return;
     }
 
-    watcher = createWatcher(collections, (event: FileEvent) => {
-      syncer.handleEvent(event).catch((e) => {
-        const label = "serverPath" in event ? event.serverPath : event.collectionName;
-        log(`Error handling ${event.type} for ${label}: ${(e as Error).message}`);
-      });
-    });
+    watcher = createWatcher(
+      collections,
+      (event: FileEvent) => {
+        syncer.handleEvent(event).catch((e) => {
+          const label = "serverPath" in event ? event.serverPath : event.collectionName;
+          log(`Error handling ${event.type} for ${label}: ${(e as Error).message}`);
+        });
+      },
+      (error: Error) => {
+        log(`Watcher error: ${error.message}`);
+        if (!reloading) {
+          log("Attempting to rebuild watcher...");
+          void rebuildWatcher(config.collections);
+        }
+      }
+    );
     log(`Watching ${collections.length} collection(s): ${collections.map((f) => f.name).join(", ")}`);
   };
 
@@ -235,8 +248,31 @@ async function startForeground(): Promise<void> {
   }, 1500);
 
   const healthTimer = setInterval(() => {
+    // Watchdog: rebuild watcher if it died unexpectedly
+    if (watcher?.closed && !reloading) {
+      log("Watchdog: watcher closed unexpectedly, rebuilding...");
+      void rebuildWatcher(config.collections);
+    }
     updateHealth();
   }, 5000);
+
+  // Periodic reconciliation (every 5 minutes) to catch drift
+  const reconcileTimer = setInterval(() => {
+    if (reloading || config.collections.length === 0) return;
+    void (async () => {
+      try {
+        const { uploaded, deleted } = await syncer.initialSync();
+        lastReconcileAt = new Date().toISOString();
+        if (uploaded > 0 || deleted > 0) {
+          log(`Reconciliation: ${uploaded} uploaded, ${deleted} deleted`);
+          lastSyncAt = lastReconcileAt;
+        }
+        updateHealth();
+      } catch (e: unknown) {
+        log(`Reconciliation failed: ${(e as Error).message}`);
+      }
+    })();
+  }, 5 * 60 * 1000);
 
   log("Daemon running. Press Ctrl+C to stop.");
 
@@ -245,6 +281,7 @@ async function startForeground(): Promise<void> {
     log("Shutting down...");
     clearInterval(pollTimer);
     clearInterval(healthTimer);
+    clearInterval(reconcileTimer);
     if (watcher) void watcher.close();
     syncer.stop();
 
@@ -255,7 +292,9 @@ async function startForeground(): Promise<void> {
       username: config.username,
       pendingOps: 0,
       collectionsWatched: 0,
+      watcherAlive: false,
       lastSyncAt,
+      lastReconcileAt,
       updatedAt: new Date().toISOString(),
     });
 
@@ -267,6 +306,14 @@ async function startForeground(): Promise<void> {
     process.exit(0);
   };
 
+  process.on("uncaughtException", (error) => {
+    log(`Uncaught exception: ${error.message}`);
+    shutdown();
+  });
+  process.on("unhandledRejection", (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    log(`Unhandled rejection: ${msg}`);
+  });
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }

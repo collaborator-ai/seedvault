@@ -1,6 +1,7 @@
 import { loadConfig, configExists } from "../config.js";
 import { createClient } from "../client.js";
 import { getServiceStatus, detectPlatform } from "../daemon/service.js";
+import { getDaemonHealth } from "../api/health.js";
 
 /**
  * sv status
@@ -31,6 +32,25 @@ export async function status(): Promise<void> {
       console.log(`  Daemon:  not registered (run 'sv start' to register)`);
     } else if (svc.running) {
       console.log(`  Daemon:  running via ${serviceName}${svc.pid ? ` (PID ${svc.pid})` : ""}`);
+
+      const health = getDaemonHealth();
+      if (health) {
+        const ageMs = Date.now() - new Date(health.updatedAt).getTime();
+        const stale = ageMs > 15_000;
+        console.log(`  Health:  ${stale ? "STALE" : "ok"} (updated ${Math.round(ageMs / 1000)}s ago)`);
+        console.log(`  Watcher: ${health.watcherAlive ? "alive" : "dead"}`);
+        if (health.pendingOps > 0) {
+          console.log(`  Pending: ${health.pendingOps} ops`);
+        }
+        if (health.lastSyncAt) {
+          const syncAge = Date.now() - new Date(health.lastSyncAt).getTime();
+          console.log(`  Last sync: ${formatAge(syncAge)} ago`);
+        }
+        if (health.lastReconcileAt) {
+          const reconcileAge = Date.now() - new Date(health.lastReconcileAt).getTime();
+          console.log(`  Last reconcile: ${formatAge(reconcileAge)} ago`);
+        }
+      }
     } else {
       console.log(`  Daemon:  registered via ${serviceName} but not running`);
     }
@@ -58,4 +78,13 @@ export async function status(): Promise<void> {
   }
 
   console.log();
+}
+
+function formatAge(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
 }
