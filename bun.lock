@@ -12,6 +12,7 @@
         "sv": "bin/sv.mjs",
       },
       "dependencies": {
+        "@seedvault/sdk": "workspace:*",
         "chokidar": "^4",
       },
       "devDependencies": {

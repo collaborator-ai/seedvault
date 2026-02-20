@@ -14,6 +14,20 @@ function resolveOriginCtime(birthtimeMs: number, mtimeMs: number): number {
   return birthtimeMs > 0 ? birthtimeMs : mtimeMs;
 }
 
+/** Strip the username/ prefix from server paths for local comparison */
+function stripUserPrefix(
+  files: FileEntry[],
+  username: string,
+): FileEntry[] {
+  const prefix = `${username}/`;
+  return files.map((f) => ({
+    ...f,
+    path: f.path.startsWith(prefix)
+      ? f.path.slice(prefix.length)
+      : f.path,
+  }));
+}
+
 export interface SyncerOptions {
   client: SeedvaultClient;
   username: string;
@@ -74,7 +88,8 @@ export class Syncer {
   private async purgeOrphans(): Promise<number> {
     let deleted = 0;
 
-    const { files: allServerFiles } = await this.client.listFiles(this.username);
+    const { files: rawFiles } = await this.client.listFiles(`${this.username}/`);
+    const allServerFiles = stripUserPrefix(rawFiles, this.username);
     const collectionNames = new Set(this.collections.map((c) => c.name));
 
     const orphans = allServerFiles.filter((f) => {
@@ -119,10 +134,10 @@ export class Syncer {
 
     try {
       // Get server file listing for this collection's prefix
-      const { files: serverFiles } = await this.client.listFiles(
-        this.username,
-        collection.name + "/"
+      const { files: rawFiles } = await this.client.listFiles(
+        `${this.username}/${collection.name}/`
       );
+      const serverFiles = stripUserPrefix(rawFiles, this.username);
 
       // Build a map of server files by path -> FileEntry
       const serverMap = new Map<string, FileEntry>();
@@ -217,10 +232,10 @@ export class Syncer {
     this.log(`Removing '${collection.name}' files from server...`);
 
     try {
-      const { files: serverFiles } = await this.client.listFiles(
-        this.username,
-        collection.name + "/"
+      const { files: rawFiles } = await this.client.listFiles(
+        `${this.username}/${collection.name}/`
       );
+      const serverFiles = stripUserPrefix(rawFiles, this.username);
 
       await pooled(serverFiles, SYNC_CONCURRENCY, async (f) => {
         try {
@@ -328,10 +343,10 @@ export class Syncer {
    */
   private async reconcileCollection(collection: CollectionConfig): Promise<void> {
     this.log(`Reconciling '${collection.name}' after directory change...`);
-    const { files: serverFiles } = await this.client.listFiles(
-      this.username,
-      collection.name + "/"
+    const { files: rawFiles } = await this.client.listFiles(
+      `${this.username}/${collection.name}/`
     );
+    const serverFiles = stripUserPrefix(rawFiles, this.username);
     if (serverFiles.length === 0) return;
 
     const localFiles = await walkMd(collection.path).catch(() => [] as LocalFile[]);

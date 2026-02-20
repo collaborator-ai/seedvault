@@ -51,6 +51,7 @@
 		"directory": "cli"
 	},
 	"dependencies": {
+		"@seedvault/sdk": "workspace:*",
 		"chokidar": "^4"
 	},
 	"devDependencies": {

@@ -1,16 +1,16 @@
-export { createClient, ApiError } from "../client.js";
-
-export type {
-  SeedvaultClient,
-  FileEntry,
-  PutFileOptions,
-  SearchResult,
-  SearchOptions,
-  SearchResponse,
-  ActivityEvent,
-  ActivityOptions,
-  ActivityResponse,
-  HealthResponse,
-  SubscribeOptions,
-  VaultEvent,
-} from "../client.js";
+export {
+  createClient,
+  ApiError,
+  type SeedvaultClient,
+  type FileEntry,
+  type PutFileOptions,
+  type SearchResult,
+  type SearchOptions,
+  type SearchResponse,
+  type ActivityEvent,
+  type ActivityOptions,
+  type ActivityResponse,
+  type HealthResponse,
+  type SubscribeOptions,
+  type VaultEvent,
+} from "@seedvault/sdk";

@@ -24,8 +24,13 @@ export async function ls(args: string[]): Promise<void> {
   const username = slashIdx === -1 ? input : input.slice(0, slashIdx);
   const prefix = slashIdx === -1 ? undefined : input.slice(slashIdx + 1) || undefined;
 
-  const { files } = await client.listFiles(username, prefix);
+  const fullPrefix = prefix ? `${username}/${prefix}` : `${username}/`;
+  const { files } = await client.listFiles(fullPrefix);
+  const stripPrefix = `${username}/`;
   for (const f of files) {
-    console.log(f.path);
+    const display = f.path.startsWith(stripPrefix)
+      ? f.path.slice(stripPrefix.length)
+      : f.path;
+    console.log(display);
   }
 }

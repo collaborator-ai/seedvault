@@ -35,7 +35,7 @@ export { getDaemonHealth, writeHealthFile } from "./health.js";
 export type { DaemonHealth } from "./health.js";
 
 // Client
-export { createClient, ApiError } from "./client.js";
+export { createClient, ApiError } from "@seedvault/sdk";
 
 export type {
   SeedvaultClient,
@@ -50,5 +50,5 @@ export type {
   HealthResponse,
   SubscribeOptions,
   VaultEvent,
-} from "./client.js";
+} from "@seedvault/sdk";
 
