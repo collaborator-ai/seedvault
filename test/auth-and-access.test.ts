@@ -18,7 +18,7 @@ import {
   createClient,
   type SeedvaultClient,
   ApiError,
-} from "../cli/src/client.js";
+} from "../sdk/src/index.js";
 
 let server: ReturnType<typeof Bun.serve>;
 let serverDataDir: string;

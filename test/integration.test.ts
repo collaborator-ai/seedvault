@@ -19,7 +19,7 @@ import { initDb } from "../server/src/db.js";
 import { createApp } from "../server/src/routes.js";
 
 // Client module.
-import { createClient, type SeedvaultClient, ApiError } from "../cli/src/client.js";
+import { createClient, type SeedvaultClient, ApiError } from "../sdk/src/index.js";
 
 // Watcher module — doesn't use config.ts, safe to import statically.
 import { createWatcher, type FileEvent } from "../cli/src/daemon/watcher.js";
@@ -47,9 +47,10 @@ async function waitForFile(
   timeoutMs = 5000
 ): Promise<void> {
   const start = Date.now();
+  const fullPath = `${username}/${path}`;
   while (Date.now() - start < timeoutMs) {
-    const { files } = await cl.listFiles(username);
-    if (files.some((f) => f.path === path)) return;
+    const { files } = await cl.listFiles(`${username}/`);
+    if (files.some((f) => f.path === fullPath)) return;
     await Bun.sleep(100);
   }
   throw new Error(`Timed out waiting for file: ${path}`);
@@ -63,10 +64,11 @@ async function waitForDelete(
   timeoutMs = 5000
 ): Promise<void> {
   const start = Date.now();
+  const fullPath = `${username}/${path}`;
   while (Date.now() - start < timeoutMs) {
     try {
-      const { files } = await cl.listFiles(username);
-      if (!files.some((f) => f.path === path)) return;
+      const { files } = await cl.listFiles(`${username}/`);
+      if (!files.some((f) => f.path === fullPath)) return;
     } catch (e) {
       if (e instanceof ApiError && e.status >= 500) continue;
       throw e;
@@ -128,11 +130,15 @@ function createSyncHandler(cl: SeedvaultClient, uname: string, collections: Coll
       const collection = collections.find((c) => c.name === event.collectionName);
       if (!collection) return;
       // Diff server files against local to find orphans
-      const { files: serverFiles } = await cl.listFiles(uname, collection.name + "/");
-      const localFiles = await walkMdPaths(collection.path, collection.name);
+      const { files: serverFiles } = await cl.listFiles(`${uname}/${collection.name}/`);
+      const localFiles = await walkMdPaths(collection.path, collection.name, uname);
       const orphans = serverFiles.filter((f) => !localFiles.has(f.path));
+      const pathPrefix = `${uname}/`;
       for (const f of orphans) {
-        await cl.deleteFile(uname, f.path).catch((e) => {
+        const filePath = f.path.startsWith(pathPrefix)
+          ? f.path.slice(pathPrefix.length)
+          : f.path;
+        await cl.deleteFile(uname, filePath).catch((e) => {
           if (e instanceof ApiError && e.status === 404) return;
           throw e;
         });
@@ -142,7 +148,7 @@ function createSyncHandler(cl: SeedvaultClient, uname: string, collections: Coll
 }
 
 /** Walk a directory for .md files and return their server paths. */
-async function walkMdPaths(dir: string, collectionName: string): Promise<Set<string>> {
+async function walkMdPaths(dir: string, collectionName: string, uname: string): Promise<Set<string>> {
   const paths = new Set<string>();
   try {
     const { readdir, stat } = await import("fs/promises");
@@ -156,7 +162,7 @@ async function walkMdPaths(dir: string, collectionName: string): Promise<Set<str
           await walk(full);
         } else if (entry.isFile() && entry.name.endsWith(".md")) {
           const rel = relative(dir, full).split("\\").join("/");
-          paths.add(`${collectionName}/${rel}`);
+          paths.add(`${uname}/${collectionName}/${rel}`);
         }
       }
     }
@@ -258,8 +264,8 @@ describe("API basics", () => {
   });
 
   test("listFiles returns uploaded files", async () => {
-    const { files } = await client.listFiles(username, "test/");
-    expect(files.some((f) => f.path === "test/hello.md")).toBe(true);
+    const { files } = await client.listFiles(`${username}/test/`);
+    expect(files.some((f) => f.path === `${username}/test/hello.md`)).toBe(true);
   });
 
   test("second signup requires invite", async () => {
@@ -294,13 +300,13 @@ describe("API special characters", () => {
   }
 
   test("listFiles includes special-char files", async () => {
-    const { files } = await client.listFiles(username, "special/");
+    const { files } = await client.listFiles(`${username}/special/`);
     const paths = files.map((f) => f.path);
-    expect(paths).toContain("special/with spaces.md");
-    expect(paths).toContain("special/colon: test.md");
-    expect(paths).toContain("special/brackets [test].md");
-    expect(paths).toContain("special/emoji \u{1F680}.md");
-    expect(paths).toContain("special/unicode \u6587\u6863.md");
+    expect(paths).toContain(`${username}/special/with spaces.md`);
+    expect(paths).toContain(`${username}/special/colon: test.md`);
+    expect(paths).toContain(`${username}/special/brackets [test].md`);
+    expect(paths).toContain(`${username}/special/emoji \u{1F680}.md`);
+    expect(paths).toContain(`${username}/special/unicode \u6587\u6863.md`);
   });
 
   test("DELETE works with special characters", async () => {
@@ -585,8 +591,8 @@ describe("timestamps", () => {
   });
 
   test("listFiles returns timestamps", async () => {
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/with-headers.md");
+    const { files } = await client.listFiles(`${username}/ts/`);
+    const f = files.find((f) => f.path === `${username}/ts/with-headers.md`);
     expect(f).toBeDefined();
     expect(f!.createdAt).toBe("2024-06-15T10:30:00.000Z");
     expect(f!.modifiedAt).toBe("2024-07-20T14:45:00.000Z");
@@ -624,8 +630,8 @@ describe("timestamps", () => {
     expect(res.createdAt).toBe(ctime);
     expect(res.modifiedAt).toBe(mtime);
 
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/precision.md");
+    const { files } = await client.listFiles(`${username}/ts/`);
+    const f = files.find((f) => f.path === `${username}/ts/precision.md`);
     expect(f!.createdAt).toBe(ctime);
     expect(f!.modifiedAt).toBe(mtime);
   });
@@ -642,8 +648,8 @@ describe("timestamps", () => {
       });
     }
 
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/rapid.md");
+    const { files } = await client.listFiles(`${username}/ts/`);
+    const f = files.find((f) => f.path === `${username}/ts/rapid.md`);
     expect(f!.createdAt).toBe(originalCtime);
     expect(f!.modifiedAt).toBe(lastMtime);
   });
@@ -652,8 +658,8 @@ describe("timestamps", () => {
     const before = new Date().toISOString();
     await client.putFile(username, "ts/legacy.md", "# Legacy client\n");
 
-    const { files } = await client.listFiles(username, "ts/");
-    const f = files.find((f) => f.path === "ts/legacy.md");
+    const { files } = await client.listFiles(`${username}/ts/`);
+    const f = files.find((f) => f.path === `${username}/ts/legacy.md`);
     expect(f).toBeDefined();
     expect(f!.createdAt).toBeDefined();
     expect(f!.modifiedAt).toBeDefined();

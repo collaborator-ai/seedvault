@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { createClient, type VaultEvent } from "../cli/src/client.js";
+import { createClient, type VaultEvent } from "../sdk/src/index.js";
 
 type TestServer = ReturnType<typeof Bun.serve>;
 
