@@ -7,7 +7,7 @@
     },
     "cli": {
       "name": "@seedvault/cli",
-      "version": "0.6.0",
+      "version": "0.9.1",
       "bin": {
         "sv": "bin/sv.mjs",
       },
@@ -19,13 +19,16 @@
         "typescript": "^5",
       },
     },
-    "electron": {
-      "name": "@seedvault/electron",
+    "sdk": {
+      "name": "@seedvault/sdk",
       "version": "0.1.0",
+      "devDependencies": {
+        "typescript": "^5",
+      },
     },
     "server": {
       "name": "@seedvault/server",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "dependencies": {
         "hono": "^4",
       },
@@ -38,7 +41,7 @@
   "packages": {
     "@seedvault/cli": ["@seedvault/cli@workspace:cli"],
 
-    "@seedvault/electron": ["@seedvault/electron@workspace:electron"],
+    "@seedvault/sdk": ["@seedvault/sdk@workspace:sdk"],
 
     "@seedvault/server": ["@seedvault/server@workspace:server"],
 

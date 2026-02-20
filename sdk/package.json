@@ -1,0 +1,26 @@
+{
+  "name": "@seedvault/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "prepublishOnly": "bun run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/collaborator-ai/seedvault.git",
+    "directory": "sdk"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}
