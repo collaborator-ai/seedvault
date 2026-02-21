@@ -15,9 +15,8 @@ import type {
   ActivityOptions,
   ActivityResponse,
   HealthResponse,
-  SubscribeOptions,
-  VaultEvent,
 } from "./types.js";
+import type { SubscribeOptions, VaultEvent } from "./events.js";
 import { ApiError } from "./errors.js";
 import { parseSSEStream } from "./sse.js";
 

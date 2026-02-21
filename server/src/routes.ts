@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { randomUUID } from "crypto";
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import {
@@ -33,6 +34,10 @@ import { computeDiff } from "./diff.js";
 
 const uiPath = resolve(import.meta.dirname, "index.html");
 const isDev = process.env.NODE_ENV !== "production";
+const eventsModulePath = resolve(
+	import.meta.dirname,
+	isDev ? "../../sdk/dist/seedvault-events.js" : "seedvault-events.js",
+);
 
 function logActivity(
 	contributor: string,
@@ -43,6 +48,12 @@ function logActivity(
 	broadcast("activity", event);
 }
 const uiHtmlCached = readFileSync(uiPath, "utf-8");
+let eventsModuleCached: string | undefined;
+function getEventsModule(): string {
+	if (isDev) return readFileSync(eventsModulePath, "utf-8");
+	eventsModuleCached ??= readFileSync(eventsModulePath, "utf-8");
+	return eventsModuleCached;
+}
 
 /**
  * Extract username and file path from a /v1/files/* request path.
@@ -77,6 +88,14 @@ export function createApp(): Hono {
 
 	app.get("/health", (c) => {
 		return c.json({ status: "ok" });
+	});
+
+	// --- Browser event module (no auth) ---
+
+	app.get("/seedvault-events.js", (c) => {
+		return c.body(getEventsModule(), 200, {
+			"Content-Type": "application/javascript",
+		});
 	});
 
 	// --- Signup (no auth) ---
@@ -293,6 +312,7 @@ export function createApp(): Hono {
 			);
 
 			broadcast("file_updated", {
+				id: randomUUID(),
 				contributor: parsed.username,
 				path: item.path,
 				size: Buffer.byteLength(item.content),
@@ -345,6 +365,7 @@ export function createApp(): Hono {
 		});
 
 		broadcast("file_deleted", {
+			id: randomUUID(),
 			contributor: parsed.username,
 			path: parsed.filePath,
 		});

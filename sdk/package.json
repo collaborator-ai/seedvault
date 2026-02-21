@@ -1,17 +1,21 @@
 {
   "name": "@seedvault/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./events": {
+      "types": "./dist/events.d.ts",
+      "import": "./dist/events.js"
     }
   },
   "types": "dist/index.d.ts",
   "files": ["dist"],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && bun build src/events.ts --outfile dist/seedvault-events.js --target=browser --format=esm",
     "check": "tsc --noEmit",
     "prepublishOnly": "bun run build"
   },

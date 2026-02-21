@@ -10,7 +10,7 @@
     "bin"
   ],
   "scripts": {
-    "build": "bun build src/index.ts --outfile dist/server.js --target bun && cp src/index.html dist/",
+    "build": "bun build src/index.ts --outfile dist/server.js --target bun && cp src/index.html dist/ && cp ../sdk/dist/seedvault-events.js dist/",
     "dev": "DATA_DIR=./data bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "check": "tsc --noEmit",

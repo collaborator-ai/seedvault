@@ -7,6 +7,8 @@
 export {
   createClient,
   ApiError,
+  parseVaultEvent,
+  matchesFilter,
   type SeedvaultClient,
   type MeResponse,
   type SignupResponse,
@@ -25,4 +27,8 @@ export {
   type HealthResponse,
   type SubscribeOptions,
   type VaultEvent,
+  type VaultEventType,
+  type FileUpdatedEvent,
+  type FileDeletedEvent,
+  type ActivityVaultEvent,
 } from "@seedvault/sdk";

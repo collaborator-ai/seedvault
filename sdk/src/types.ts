@@ -78,17 +78,3 @@ export interface HealthResponse {
   status: string;
 }
 
-export interface SubscribeOptions {
-  /** Filter to a specific contributor. Omit for all. */
-  contributor?: string;
-  /** Filter to specific actions. Omit for all. */
-  actions?: Array<"file_write" | "file_delete">;
-}
-
-export interface VaultEvent {
-  id: string;
-  action: "file_write" | "file_delete";
-  contributor: string;
-  path: string;
-  timestamp: string;
-}

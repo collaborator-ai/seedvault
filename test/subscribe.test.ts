@@ -74,16 +74,21 @@ describe("subscribe", () => {
 
     expect(events).toHaveLength(2);
 
+    expect(events[0]!.type).toBe("file_updated");
     expect(events[0]!.id).toBe("u1");
-    expect(events[0]!.action).toBe("file_write");
     expect(events[0]!.contributor).toBe("alice");
-    expect(events[0]!.path).toBe("notes/hello.md");
-    expect(events[0]!.timestamp).toBe("2026-01-01T00:00:00Z");
+    if (events[0]!.type === "file_updated") {
+      expect(events[0]!.path).toBe("notes/hello.md");
+      expect(events[0]!.size).toBe(42);
+      expect(events[0]!.modifiedAt).toBe("2026-01-01T00:00:00Z");
+    }
 
+    expect(events[1]!.type).toBe("file_deleted");
     expect(events[1]!.id).toBe("d1");
-    expect(events[1]!.action).toBe("file_delete");
     expect(events[1]!.contributor).toBe("bob");
-    expect(events[1]!.path).toBe("notes/bye.md");
+    if (events[1]!.type === "file_deleted") {
+      expect(events[1]!.path).toBe("notes/bye.md");
+    }
   });
 
   test("filters by contributor option", async () => {
@@ -115,10 +120,12 @@ describe("subscribe", () => {
 
     expect(events).toHaveLength(1);
     expect(events[0]!.contributor).toBe("bob");
-    expect(events[0]!.path).toBe("b.md");
+    if (events[0]!.type === "file_updated") {
+      expect(events[0]!.path).toBe("b.md");
+    }
   });
 
-  test("filters by action option", async () => {
+  test("filters by eventTypes option", async () => {
     const body =
       sseBlock("file_updated", {
         id: "u1",
@@ -139,22 +146,24 @@ describe("subscribe", () => {
       "tok",
     );
     const events = await collect(
-      client.subscribe({ actions: ["file_delete"] }),
+      client.subscribe({ eventTypes: ["file_deleted"] }),
       1,
     );
 
     expect(events).toHaveLength(1);
-    expect(events[0]!.action).toBe("file_delete");
-    expect(events[0]!.path).toBe("b.md");
+    expect(events[0]!.type).toBe("file_deleted");
+    if (events[0]!.type === "file_deleted") {
+      expect(events[0]!.path).toBe("b.md");
+    }
   });
 
-  test("ignores activity and connected events", async () => {
+  test("yields activity events and ignores connected", async () => {
     const body =
       sseBlock("connected", {}) +
       sseBlock("activity", {
         id: "a1",
         contributor: "alice",
-        action: "file_write",
+        action: "file_upserted",
         detail: "wrote something",
         created_at: "2026-01-01T00:00:00Z",
       }) +
@@ -171,11 +180,20 @@ describe("subscribe", () => {
       `http://localhost:${server.port}`,
       "tok",
     );
-    const events = await collect(client.subscribe(), 1);
+    const events = await collect(client.subscribe(), 2);
 
-    expect(events).toHaveLength(1);
-    expect(events[0]!.id).toBe("u1");
-    expect(events[0]!.action).toBe("file_write");
+    expect(events).toHaveLength(2);
+
+    expect(events[0]!.type).toBe("activity");
+    expect(events[0]!.id).toBe("a1");
+    if (events[0]!.type === "activity") {
+      expect(events[0]!.action).toBe("file_upserted");
+      expect(events[0]!.detail).toBe("wrote something");
+      expect(events[0]!.created_at).toBe("2026-01-01T00:00:00Z");
+    }
+
+    expect(events[1]!.type).toBe("file_updated");
+    expect(events[1]!.id).toBe("u1");
   });
 
   test("sends Authorization header", async () => {

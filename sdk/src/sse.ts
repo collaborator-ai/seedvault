@@ -1,10 +1,5 @@
-import type { VaultEvent, SubscribeOptions } from "./types.js";
-
-/** Map server SSE event names to VaultEvent action names */
-const SSE_ACTION_MAP: Record<string, "file_write" | "file_delete"> = {
-  file_updated: "file_write",
-  file_deleted: "file_delete",
-};
+import type { VaultEvent, SubscribeOptions } from "./events.js";
+import { parseVaultEvent, matchesFilter } from "./events.js";
 
 export async function* parseSSEStream(
   body: ReadableStream<Uint8Array>,
@@ -32,37 +27,12 @@ export async function* parseSSEStream(
         } else if (line.startsWith("data: ")) {
           dataLines.push(line.slice(6));
         } else if (line === "" && eventType && dataLines.length > 0) {
-          const action = SSE_ACTION_MAP[eventType];
-          if (action) {
-            let data: Record<string, unknown>;
-            try {
-              data = JSON.parse(dataLines.join("\n"));
-            } catch {
-              eventType = "";
-              dataLines = [];
-              continue;
-            }
-            const event: VaultEvent = {
-              id: (data.id as string) ?? "",
-              action,
-              contributor: (data.contributor as string) ?? "",
-              path: (data.path as string) ?? "",
-              timestamp:
-                (data.modifiedAt as string) ??
-                (data.created_at as string) ??
-                new Date().toISOString(),
-            };
-
-            const passContributor =
-              !opts?.contributor ||
-              event.contributor === opts.contributor;
-            const passAction =
-              !opts?.actions ||
-              opts.actions.includes(event.action);
-
-            if (passContributor && passAction) {
-              yield event;
-            }
+          const event = parseVaultEvent(
+            eventType,
+            dataLines.join("\n"),
+          );
+          if (event && matchesFilter(event, opts)) {
+            yield event;
           }
           eventType = "";
           dataLines = [];

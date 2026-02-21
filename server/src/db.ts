@@ -473,7 +473,7 @@ export function listActivityEvents(
   opts?: ListActivityOptions
 ): ActivityEvent[] {
   const conditions: string[] = [];
-  const params: unknown[] = [];
+  const params: (string | number)[] = [];
 
   if (opts?.contributor) {
     conditions.push("contributor = ?");

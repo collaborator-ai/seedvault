@@ -1073,6 +1073,7 @@
 			Activity</button>
 	</footer>
 	<script type="module">
+		import { parseVaultEvent } from "/seedvault-events.js";
 		const { marked } = await import("https://cdn.jsdelivr.net/npm/marked/lib/marked.esm.js");
 		const matter = (await import("https://cdn.jsdelivr.net/npm/gray-matter@4.0.3/+esm")).default;
 		const DOMPurify = (await import("https://cdn.jsdelivr.net/npm/dompurify@3.0.9/+esm")).default;
@@ -1454,17 +1455,18 @@
 			evtSource = new EventSource("/v1/events?token=" + encodeURIComponent(token));
 
 			evtSource.addEventListener("file_updated", (e) => {
-				const { contributor, path } = JSON.parse(e.data);
-				scheduleContributorReload(contributor);
-				if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
-					const encodedPath = path.split("/").map(encodeURIComponent).join("/");
-					api("/v1/files/" + encodeURIComponent(contributor) + "/" + encodedPath)
+				const event = parseVaultEvent(e.type, e.data);
+				if (!event || event.type !== "file_updated") return;
+				scheduleContributorReload(event.contributor);
+				if (localStorage.getItem("sv-file") === event.path && localStorage.getItem("sv-contributor") === event.contributor) {
+					const encodedPath = event.path.split("/").map(encodeURIComponent).join("/");
+					api("/v1/files/" + encodeURIComponent(event.contributor) + "/" + encodedPath)
 						.then((res) => res.text())
 						.then((text) => {
 							const { html, meta } = renderMarkdown(text);
-							const fileName = path.split("/").pop().replace(/\.md$/, "");
+							const fileName = event.path.split("/").pop().replace(/\.md$/, "");
 							$("item-title").textContent = meta.title || fileName;
-							$("item-path").textContent = contributor + ":" + path;
+							$("item-path").textContent = event.contributor + ":" + event.path;
 							$("item-meta").innerHTML = renderMeta(meta);
 							$("item-header").hidden = false;
 							contentEl.innerHTML = html;
@@ -1473,17 +1475,20 @@
 			});
 
 			evtSource.addEventListener("file_deleted", (e) => {
-				const { contributor, path } = JSON.parse(e.data);
-				scheduleContributorReload(contributor);
-				if (localStorage.getItem("sv-file") === path && localStorage.getItem("sv-contributor") === contributor) {
+				const event = parseVaultEvent(e.type, e.data);
+				if (!event || event.type !== "file_deleted") return;
+				scheduleContributorReload(event.contributor);
+				if (localStorage.getItem("sv-file") === event.path && localStorage.getItem("sv-contributor") === event.contributor) {
 					$("item-header").hidden = true;
 					contentEl.innerHTML = emptyStateHTML;
-					status("File deleted: " + path);
+					status("File deleted: " + event.path);
 				}
 			});
 
 			evtSource.addEventListener("activity", (e) => {
-				handleActivitySSE(e);
+				const event = parseVaultEvent(e.type, e.data);
+				if (!event || event.type !== "activity") return;
+				handleActivitySSE(event);
 			});
 
 			evtSource.onerror = () => {
@@ -1549,9 +1554,8 @@
 			activityModal.classList.remove("open");
 		}
 
-		function handleActivitySSE(ev) {
+		function handleActivitySSE(event) {
 			if (!activityModal.classList.contains("open")) return;
-			const event = JSON.parse(ev.detail || ev.data);
 			if (activitySeenIds.has(event.id)) return;
 			activitySeenIds.add(event.id);
 			activityOffset++;

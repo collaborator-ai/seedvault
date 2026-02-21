@@ -1,5 +1,14 @@
 export { createClient, type SeedvaultClient } from "./client.js";
 export { ApiError } from "./errors.js";
+export { parseVaultEvent, matchesFilter } from "./events.js";
+export type {
+  VaultEvent,
+  VaultEventType,
+  FileUpdatedEvent,
+  FileDeletedEvent,
+  ActivityVaultEvent,
+  SubscribeOptions,
+} from "./events.js";
 export type {
   MeResponse,
   SignupResponse,
@@ -16,6 +25,4 @@ export type {
   ActivityOptions,
   ActivityResponse,
   HealthResponse,
-  SubscribeOptions,
-  VaultEvent,
 } from "./types.js";
