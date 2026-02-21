@@ -1,6 +1,5 @@
 import type { FSWatcher } from "chokidar";
 import {
-  loadConfig,
   normalizeConfigCollections,
   type CollectionConfig,
   type Config,
@@ -8,7 +7,7 @@ import {
 import { createClient } from "../client.js";
 import { createWatcher, type FileEvent } from "../daemon/watcher.js";
 import { Syncer } from "../daemon/syncer.js";
-import { getDaemonHealth, writeHealthFile } from "./health.js";
+import { writeHealthFile } from "./health.js";
 
 export interface SyncStatus {
   running: boolean;
@@ -23,11 +22,12 @@ export interface SyncStatus {
 export interface SyncHandle {
   stop(): Promise<void>;
   getStatus(): SyncStatus;
-  reloadConfig(): Promise<void>;
+  reloadConfig(config: Config): Promise<void>;
 }
 
 export interface SyncOptions {
   config: Config;
+  configDir?: string;
   onLog?: (msg: string) => void;
   onError?: (error: Error) => void;
   onSyncComplete?: (stats: {
@@ -37,41 +37,26 @@ export interface SyncOptions {
   }) => void;
   reconcileInterval?: number;
   healthInterval?: number;
-  pollInterval?: number;
   enableHealthFile?: boolean;
 }
 
 const DEFAULT_RECONCILE_INTERVAL = 5 * 60 * 1000;
 const DEFAULT_HEALTH_INTERVAL = 5000;
-const DEFAULT_POLL_INTERVAL = 1500;
 
 export async function startSync(
   options: SyncOptions,
 ): Promise<SyncHandle> {
   const {
+    configDir,
     onLog,
     onError,
     onSyncComplete,
     reconcileInterval = DEFAULT_RECONCILE_INTERVAL,
     healthInterval = DEFAULT_HEALTH_INTERVAL,
-    pollInterval = DEFAULT_POLL_INTERVAL,
     enableHealthFile = true,
   } = options;
 
   const log = onLog ?? (() => {});
-
-  // Coexistence check: prevent two sync engines
-  const existingHealth = getDaemonHealth();
-  if (existingHealth?.running) {
-    const updatedAt = new Date(existingHealth.updatedAt).getTime();
-    const staleThreshold = healthInterval * 3;
-    if (Date.now() - updatedAt < staleThreshold) {
-      throw new Error(
-        "Another sync engine is already running. " +
-        "Stop the existing daemon before starting a new one.",
-      );
-    }
-  }
 
   let config = options.config;
   let { config: normalizedConfig, removedOverlappingCollections } =
@@ -126,18 +111,21 @@ export async function startSync(
 
   const updateHealth = () => {
     if (!enableHealthFile) return;
-    writeHealthFile({
-      running: true,
-      serverConnected,
-      serverUrl: config.server,
-      username: config.username,
-      pendingOps: syncer.pendingOps,
-      collectionsWatched: config.collections.length,
-      watcherAlive: watcher !== null && !watcher.closed,
-      lastSyncAt,
-      lastReconcileAt,
-      updatedAt: new Date().toISOString(),
-    });
+    writeHealthFile(
+      {
+        running: true,
+        serverConnected,
+        serverUrl: config.server,
+        username: config.username,
+        pendingOps: syncer.pendingOps,
+        collectionsWatched: config.collections.length,
+        watcherAlive: watcher !== null && !watcher.closed,
+        lastSyncAt,
+        lastReconcileAt,
+        updatedAt: new Date().toISOString(),
+      },
+      configDir,
+    );
   };
 
   // Initial sync
@@ -212,19 +200,13 @@ export async function startSync(
 
   await rebuildWatcher(config.collections);
 
-  const reloadConfig = async (): Promise<void> => {
+  const reloadConfig = async (
+    nextConfig: Config,
+  ): Promise<void> => {
     if (reloading) return;
     reloading = true;
 
     try {
-      let nextConfig: Config;
-      try {
-        nextConfig = loadConfig();
-      } catch (e: unknown) {
-        log(`Failed to read config: ${(e as Error).message}`);
-        return;
-      }
-
       ({ config: normalizedConfig, removedOverlappingCollections } =
         normalizeConfigCollections(nextConfig));
       maybeLogOverlapWarning(removedOverlappingCollections);
@@ -311,10 +293,6 @@ export async function startSync(
     }
   };
 
-  const pollTimer = setInterval(() => {
-    void reloadConfig();
-  }, pollInterval);
-
   const healthTimer = setInterval(() => {
     if (watcher?.closed && !reloading) {
       log("Watchdog: watcher closed unexpectedly, rebuilding...");
@@ -348,25 +326,27 @@ export async function startSync(
     if (stopped) return;
     stopped = true;
 
-    clearInterval(pollTimer);
     clearInterval(healthTimer);
     clearInterval(reconcileTimer);
     if (watcher) await watcher.close();
     syncer.stop();
 
     if (enableHealthFile) {
-      writeHealthFile({
-        running: false,
-        serverConnected: false,
-        serverUrl: config.server,
-        username: config.username,
-        pendingOps: 0,
-        collectionsWatched: 0,
-        watcherAlive: false,
-        lastSyncAt,
-        lastReconcileAt,
-        updatedAt: new Date().toISOString(),
-      });
+      writeHealthFile(
+        {
+          running: false,
+          serverConnected: false,
+          serverUrl: config.server,
+          username: config.username,
+          pendingOps: 0,
+          collectionsWatched: 0,
+          watcherAlive: false,
+          lastSyncAt,
+          lastReconcileAt,
+          updatedAt: new Date().toISOString(),
+        },
+        configDir,
+      );
     }
   };
 

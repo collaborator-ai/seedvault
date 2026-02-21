@@ -21,8 +21,8 @@ export interface DaemonHealth {
  * Read the daemon's health status from disk.
  * Returns null if the health file doesn't exist (daemon not running or just started).
  */
-export function getDaemonHealth(): DaemonHealth | null {
-  const filePath = join(getConfigDir(), HEALTH_FILE);
+export function getDaemonHealth(configDir?: string): DaemonHealth | null {
+  const filePath = join(configDir ?? getConfigDir(), HEALTH_FILE);
   try {
     const raw = readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as DaemonHealth;
@@ -35,7 +35,10 @@ export function getDaemonHealth(): DaemonHealth | null {
  * Write the daemon's health status to disk.
  * Called periodically by the daemon and on shutdown.
  */
-export function writeHealthFile(health: DaemonHealth): void {
-  const filePath = join(getConfigDir(), HEALTH_FILE);
+export function writeHealthFile(
+  health: DaemonHealth,
+  configDir?: string,
+): void {
+  const filePath = join(configDir ?? getConfigDir(), HEALTH_FILE);
   writeFileSync(filePath, JSON.stringify(health, null, 2) + "\n");
 }

@@ -1,5 +1,5 @@
-import { writeFileSync, unlinkSync } from "fs";
-import { loadConfig, getPidPath } from "../config.js";
+import { writeFileSync, unlinkSync, watch, type FSWatcher } from "fs";
+import { loadConfig, getPidPath, getConfigPath } from "../config.js";
 import { installService } from "../daemon/service.js";
 import { startSync } from "../api/sync.js";
 
@@ -55,10 +55,30 @@ async function startForeground(): Promise<void> {
     process.exit(1);
   });
 
+  // Watch config.json for changes instead of polling
+  let configDebounce: ReturnType<typeof setTimeout> | null = null;
+  const configWatcher: FSWatcher = watch(
+    getConfigPath(),
+    () => {
+      if (configDebounce) clearTimeout(configDebounce);
+      configDebounce = setTimeout(() => {
+        try {
+          handle.reloadConfig(loadConfig()).catch((e: unknown) => {
+            log(`Config reload failed: ${(e as Error).message}`);
+          });
+        } catch (e: unknown) {
+          log(`Failed to read config: ${(e as Error).message}`);
+        }
+      }, 300);
+    },
+  );
+
   log("Daemon running. Press Ctrl+C to stop.");
 
   const shutdown = () => {
     log("Shutting down...");
+    configWatcher.close();
+    if (configDebounce) clearTimeout(configDebounce);
     void handle.stop()
       .catch((e: unknown) => {
         log(`Shutdown error: ${(e as Error).message}`);
