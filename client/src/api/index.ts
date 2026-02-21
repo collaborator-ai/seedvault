@@ -39,6 +39,19 @@ export { startSync } from "./sync.js";
 
 export type { SyncHandle, SyncStatus, SyncOptions } from "./sync.js";
 
+// Daemon API server
+export { createDaemonServer } from "../daemon/api.js";
+
+export type { DaemonServerOptions } from "../daemon/api.js";
+
+// Event bus
+export { EventBus } from "../daemon/event-bus.js";
+
+export type { Listener, Unsubscribe } from "../daemon/event-bus.js";
+
+// File events
+export type { FileEvent } from "../daemon/watcher.js";
+
 // Client
 export { createClient, ApiError, parseVaultEvent, matchesFilter } from "@seedvault/sdk";
 
