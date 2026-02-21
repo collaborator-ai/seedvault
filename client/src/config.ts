@@ -14,7 +14,6 @@ export interface Config {
   token: string;
   username: string;
   collections: CollectionConfig[];
-  port?: number;
 }
 
 export interface AddCollectionResult {
@@ -36,12 +35,6 @@ const DAEMON_LOG_PATH = join(CONFIG_DIR, "daemon.log");
 const LAUNCHD_PLIST_PATH = join(homedir(), "Library", "LaunchAgents", "ai.seedvault.daemon.plist");
 const SYSTEMD_UNIT_PATH = join(homedir(), ".config", "systemd", "user", "seedvault.service");
 const SCHTASKS_XML_PATH = join(CONFIG_DIR, "seedvault-task.xml");
-
-export const DEFAULT_API_PORT = 9847;
-
-export function getApiPort(config: Config): number {
-  return config.port ?? DEFAULT_API_PORT;
-}
 
 export function getConfigDir(): string {
   return CONFIG_DIR;
