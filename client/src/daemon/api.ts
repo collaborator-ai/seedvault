@@ -189,6 +189,9 @@ export function createDaemonServer(options: DaemonServerOptions) {
     const headers = new Headers(req.headers);
     headers.set("Authorization", `Bearer ${config.token}`);
     headers.delete("host");
+    // Request only encodings that browser webviews support.
+    // Fly.io may respond with zstd which WKWebView cannot decode.
+    headers.set("Accept-Encoding", "gzip, deflate, br");
 
     try {
       const remoteRes = await fetch(remoteUrl, {
@@ -201,6 +204,10 @@ export function createDaemonServer(options: DaemonServerOptions) {
 
       const responseHeaders = new Headers(remoteRes.headers);
       responseHeaders.set("Access-Control-Allow-Origin", "*");
+      // Bun decompresses the upstream response, so drop encoding
+      // headers to avoid the client trying to decompress again.
+      responseHeaders.delete("Content-Encoding");
+      responseHeaders.delete("Transfer-Encoding");
 
       return new Response(remoteRes.body, {
         status: remoteRes.status,
