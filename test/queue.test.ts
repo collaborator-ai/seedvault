@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { RetryQueue, type QueuedOperation } from "../cli/src/daemon/queue.js";
-import { ApiError } from "../cli/src/client.js";
+import { RetryQueue, type QueuedOperation } from "../client/src/daemon/queue.js";
+import { ApiError } from "../client/src/client.js";
 
 function mockClient(overrides: {
   putFile?: (...args: any[]) => Promise<any>;

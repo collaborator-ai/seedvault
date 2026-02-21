@@ -1,7 +1,7 @@
 {
   "name": "seedvault",
   "private": true,
-  "workspaces": ["server", "cli", "sdk"],
+  "workspaces": ["server", "client", "sdk"],
   "scripts": {
     "dev:server": "bun run --filter @seedvault/server dev",
     "dev:cli": "bun run --filter @seedvault/client dev",

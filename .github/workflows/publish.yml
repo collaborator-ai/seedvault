@@ -39,17 +39,17 @@ jobs:
             echo "SDK: $LOCAL (unchanged)"
           fi
 
-      - name: Check CLI version
+      - name: Check client version
         id: cli
         run: |
-          LOCAL=$(jq -r .version cli/package.json)
+          LOCAL=$(jq -r .version client/package.json)
           REMOTE=$(npm view @seedvault/client version 2>/dev/null || echo "0.0.0")
           if [ "$LOCAL" != "$REMOTE" ]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "CLI: $REMOTE -> $LOCAL"
+            echo "Client: $REMOTE -> $LOCAL"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "CLI: $LOCAL (unchanged)"
+            echo "Client: $LOCAL (unchanged)"
           fi
 
       - name: Check server version
@@ -74,18 +74,18 @@ jobs:
         working-directory: sdk
         run: npm publish --provenance --access public
 
-      - name: Resolve workspace protocol for CLI
+      - name: Resolve workspace protocol for client
         if: steps.cli.outputs.changed == 'true'
         run: |
           SDK_VERSION=$(jq -r .version sdk/package.json)
           jq --arg v "$SDK_VERSION" \
             '.dependencies["@seedvault/sdk"] = $v' \
-            cli/package.json > cli/package.json.tmp
-          mv cli/package.json.tmp cli/package.json
+            client/package.json > client/package.json.tmp
+          mv client/package.json.tmp client/package.json
 
-      - name: Publish CLI
+      - name: Publish client
         if: steps.cli.outputs.changed == 'true'
-        working-directory: cli
+        working-directory: client
         run: |
           bun run build
           npm publish --provenance --access public

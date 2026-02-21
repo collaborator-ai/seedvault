@@ -22,8 +22,8 @@ import { createApp } from "../server/src/routes.js";
 import { createClient, type SeedvaultClient, ApiError } from "../sdk/src/index.js";
 
 // Watcher module — doesn't use config.ts, safe to import statically.
-import { createWatcher, type FileEvent } from "../cli/src/daemon/watcher.js";
-import type { CollectionConfig } from "../cli/src/config.js";
+import { createWatcher, type FileEvent } from "../client/src/daemon/watcher.js";
+import type { CollectionConfig } from "../client/src/config.js";
 
 // ---------------------------------------------------------------------------
 // Globals set in beforeAll

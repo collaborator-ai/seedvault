@@ -6,7 +6,7 @@ import {
   normalizeConfigCollections,
   defaultCollectionName,
   type Config,
-} from "../cli/src/config.js";
+} from "../client/src/config.js";
 
 function baseConfig(collections: Config["collections"] = []): Config {
   return {

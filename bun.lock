@@ -5,7 +5,7 @@
     "": {
       "name": "seedvault",
     },
-    "cli": {
+    "client": {
       "name": "@seedvault/client",
       "version": "0.11.0",
       "bin": {
@@ -44,7 +44,7 @@
     },
   },
   "packages": {
-    "@seedvault/client": ["@seedvault/client@workspace:cli"],
+    "@seedvault/client": ["@seedvault/client@workspace:client"],
 
     "@seedvault/sdk": ["@seedvault/sdk@workspace:sdk"],
 

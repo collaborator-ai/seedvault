@@ -5,8 +5,8 @@ import {
   getDaemonHealth,
   writeHealthFile,
   type DaemonHealth,
-} from "../cli/src/api/health.js";
-import { getConfigDir } from "../cli/src/config.js";
+} from "../client/src/api/health.js";
+import { getConfigDir } from "../client/src/config.js";
 
 // --- Health file tests ---
 
@@ -131,7 +131,7 @@ describe("ensureDaemonRunning", () => {
 
 describe("API exports", () => {
   test("all expected exports are available from api/index.ts", async () => {
-    const api = await import("../cli/src/api/index.js");
+    const api = await import("../client/src/api/index.js");
 
     // Config
     expect(typeof api.loadConfig).toBe("function");
