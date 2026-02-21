@@ -1,7 +1,15 @@
 import { writeFileSync, unlinkSync } from "fs";
-import { loadConfig, getPidPath } from "../config.js";
+import {
+  loadConfig,
+  getPidPath,
+  getApiPort,
+  addCollection,
+  removeCollection,
+  saveConfig,
+} from "../config.js";
 import { installService } from "../daemon/service.js";
 import { startSync, type SyncHandle } from "../api/sync.js";
+import { createDaemonServer } from "../daemon/api.js";
 
 /**
  * sv start [-f]
@@ -58,10 +66,48 @@ async function startForeground(): Promise<void> {
     process.exit(1);
   }
 
+  const apiPort = getApiPort(config);
+  let currentConfig = config;
+
+  const apiServer = createDaemonServer({
+    port: apiPort,
+    getConfig: () => currentConfig,
+    getStatus: () => handle.getStatus(),
+    fileEvents: handle.fileEvents,
+    updateCollections: (action, payload) => {
+      try {
+        if (action === "add") {
+          if (!payload.path) return { error: "path is required" };
+          const result = addCollection(
+            currentConfig,
+            payload.path,
+            payload.name,
+          );
+          saveConfig(result.config);
+          currentConfig = result.config;
+          return {};
+        }
+        if (action === "remove") {
+          currentConfig = removeCollection(
+            currentConfig,
+            payload.name,
+          );
+          saveConfig(currentConfig);
+          return {};
+        }
+        return { error: `Unknown action: ${action}` };
+      } catch (e: unknown) {
+        return { error: (e as Error).message };
+      }
+    },
+  });
+
+  log(`API server listening on http://127.0.0.1:${apiPort}`);
   log("Daemon running. Press Ctrl+C to stop.");
 
   const shutdown = () => {
     log("Shutting down...");
+    apiServer.stop();
     void handle.stop()
       .catch((e: unknown) => {
         log(`Shutdown error: ${(e as Error).message}`);
