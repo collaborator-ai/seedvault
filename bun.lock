@@ -6,8 +6,8 @@
       "name": "seedvault",
     },
     "cli": {
-      "name": "@seedvault/cli",
-      "version": "0.10.1",
+      "name": "@seedvault/client",
+      "version": "0.11.0",
       "bin": {
         "sv": "bin/sv.mjs",
       },
@@ -29,7 +29,7 @@
     },
     "server": {
       "name": "@seedvault/server",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "bin": {
         "seedvault-server": "bin/seedvault-server.mjs",
       },
@@ -44,7 +44,7 @@
     },
   },
   "packages": {
-    "@seedvault/cli": ["@seedvault/cli@workspace:cli"],
+    "@seedvault/client": ["@seedvault/client@workspace:cli"],
 
     "@seedvault/sdk": ["@seedvault/sdk@workspace:sdk"],
 

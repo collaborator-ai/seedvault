@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh | bash
 
 UNINSTALLER_VERSION="0.2.0"
-PACKAGE_NAME="@seedvault/cli"
+PACKAGE_NAME="@seedvault/client"
 CONFIG_DIR="$HOME/.config/seedvault"
 PID_FILE="$CONFIG_DIR/daemon.pid"
 

@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const FETCH_TIMEOUT_MS = 3000;
 const REGISTRY_URL =
-  "https://registry.npmjs.org/@seedvault/cli/latest";
+  "https://registry.npmjs.org/@seedvault/client/latest";
 const CHECK_FILE = join(
   homedir(),
   ".config",

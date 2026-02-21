@@ -4,7 +4,7 @@
   "workspaces": ["server", "cli", "sdk"],
   "scripts": {
     "dev:server": "bun run --filter @seedvault/server dev",
-    "dev:cli": "bun run --filter @seedvault/cli dev",
+    "dev:cli": "bun run --filter @seedvault/client dev",
     "check": "bun run --filter '*' check",
     "test": "bun test test/"
   }

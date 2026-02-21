@@ -1,6 +1,6 @@
 {
-	"name": "@seedvault/cli",
-	"version": "0.10.1",
+	"name": "@seedvault/client",
+	"version": "0.11.0",
 	"type": "module",
 	"bin": {
 		"sv": "bin/sv.mjs"

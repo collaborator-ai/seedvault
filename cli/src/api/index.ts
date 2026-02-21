@@ -34,6 +34,11 @@ export { getDaemonHealth, writeHealthFile } from "./health.js";
 
 export type { DaemonHealth } from "./health.js";
 
+// Sync
+export { startSync } from "./sync.js";
+
+export type { SyncHandle, SyncStatus, SyncOptions } from "./sync.js";
+
 // Client
 export { createClient, ApiError, parseVaultEvent, matchesFilter } from "@seedvault/sdk";
 
