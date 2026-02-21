@@ -662,7 +662,7 @@ Config lives at `~/.config/seedvault/config.json`:
 ### `seedvault` (monorepo)
 ```
 server/     # Server — published to npm, deploys to Fly.io, Docker, or self-hosted (macOS)
-cli/        # sv CLI + daemon — published to npm
+client/     # sv CLI + daemon — published to npm
 electron/   # Desktop app — bundles the daemon
 ```
 
