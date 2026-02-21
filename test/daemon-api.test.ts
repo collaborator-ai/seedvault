@@ -107,3 +107,112 @@ describe("daemon API — local endpoints", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("daemon API — collection management", () => {
+  test("PUT /config/collections with add action", async () => {
+    let lastUpdate: { action: string; payload: unknown } | null = null;
+
+    const server2 = createDaemonServer({
+      port: TEST_PORT + 1,
+      getConfig: () => mockConfig,
+      getStatus: () => mockStatus,
+      fileEvents,
+      updateCollections: (action, payload) => {
+        lastUpdate = { action, payload };
+        return {};
+      },
+    });
+
+    try {
+      const res = await fetch(
+        `http://localhost:${TEST_PORT + 1}/config/collections`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "add",
+            path: "/tmp/research",
+            name: "research",
+          }),
+        },
+      );
+      expect(res.status).toBe(200);
+      expect(lastUpdate).not.toBeNull();
+      expect(
+        (lastUpdate as { action: string }).action,
+      ).toBe("add");
+      expect(
+        (lastUpdate as { payload: { name: string } }).payload.name,
+      ).toBe("research");
+    } finally {
+      server2.stop();
+    }
+  });
+
+  test("PUT /config/collections with remove action", async () => {
+    let lastUpdate: { action: string; payload: unknown } | null = null;
+
+    const server2 = createDaemonServer({
+      port: TEST_PORT + 2,
+      getConfig: () => mockConfig,
+      getStatus: () => mockStatus,
+      fileEvents,
+      updateCollections: (action, payload) => {
+        lastUpdate = { action, payload };
+        return {};
+      },
+    });
+
+    try {
+      const res = await fetch(
+        `http://localhost:${TEST_PORT + 2}/config/collections`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "remove",
+            name: "notes",
+          }),
+        },
+      );
+      expect(res.status).toBe(200);
+      expect(
+        (lastUpdate as { action: string }).action,
+      ).toBe("remove");
+    } finally {
+      server2.stop();
+    }
+  });
+
+  test("PUT /config/collections returns error on failure", async () => {
+    const server2 = createDaemonServer({
+      port: TEST_PORT + 3,
+      getConfig: () => mockConfig,
+      getStatus: () => mockStatus,
+      fileEvents,
+      updateCollections: () => {
+        return { error: "Collection path already exists" };
+      },
+    });
+
+    try {
+      const res = await fetch(
+        `http://localhost:${TEST_PORT + 3}/config/collections`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "add",
+            path: "/tmp/notes",
+            name: "notes",
+          }),
+        },
+      );
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBe("Collection path already exists");
+    } finally {
+      server2.stop();
+    }
+  });
+});
