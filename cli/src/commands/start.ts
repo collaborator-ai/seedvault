@@ -92,6 +92,7 @@ async function startForeground(): Promise<void> {
   let serverConnected = true;
   let lastSyncAt: string | null = null;
   let lastReconcileAt: string | null = null;
+  let watcher: FSWatcher | null = null;
 
   const updateHealth = () => {
     writeHealthFile({
@@ -123,7 +124,6 @@ async function startForeground(): Promise<void> {
     updateHealth();
   }
 
-  let watcher: FSWatcher | null = null;
   const rebuildWatcher = async (collections: CollectionConfig[]): Promise<void> => {
     if (watcher) {
       await watcher.close();
