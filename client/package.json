@@ -1,6 +1,6 @@
 {
 	"name": "@seedvault/client",
-	"version": "0.13.0",
+	"version": "0.14.0",
 	"type": "module",
 	"bin": {
 		"sv": "bin/sv.mjs"
@@ -25,6 +25,16 @@
 			"types": "./dist/api/service.d.ts",
 			"import": "./dist/api/service.js",
 			"default": "./dist/api/service.js"
+		},
+		"./config": {
+			"types": "./dist/config.d.ts",
+			"import": "./dist/config.js",
+			"default": "./dist/config.js"
+		},
+		"./sync": {
+			"types": "./dist/api/sync.d.ts",
+			"import": "./dist/api/sync.js",
+			"default": "./dist/api/sync.js"
 		}
 	},
 	"types": "dist/api/index.d.ts",
@@ -32,7 +42,9 @@
 		"*": {
 			"client": ["dist/api/client.d.ts"],
 			"health": ["dist/api/health.d.ts"],
-			"service": ["dist/api/service.d.ts"]
+			"service": ["dist/api/service.d.ts"],
+			"config": ["dist/config.d.ts"],
+			"sync": ["dist/api/sync.d.ts"]
 		}
 	},
 	"scripts": {

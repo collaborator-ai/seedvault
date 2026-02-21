@@ -23,12 +23,18 @@ export interface SyncStatus {
 export interface SyncHandle {
   stop(): Promise<void>;
   getStatus(): SyncStatus;
+  reloadConfig(): Promise<void>;
 }
 
 export interface SyncOptions {
   config: Config;
   onLog?: (msg: string) => void;
   onError?: (error: Error) => void;
+  onSyncComplete?: (stats: {
+    uploaded: number;
+    skipped: number;
+    deleted: number;
+  }) => void;
   reconcileInterval?: number;
   healthInterval?: number;
   pollInterval?: number;
@@ -45,6 +51,7 @@ export async function startSync(
   const {
     onLog,
     onError,
+    onSyncComplete,
     reconcileInterval = DEFAULT_RECONCILE_INTERVAL,
     healthInterval = DEFAULT_HEALTH_INTERVAL,
     pollInterval = DEFAULT_POLL_INTERVAL,
@@ -113,6 +120,9 @@ export async function startSync(
   let lastReconcileAt: string | null = null;
   let watcher: FSWatcher | null = null;
   let stopped = false;
+  let reloading = false;
+  const MAX_WATCHER_RETRIES = 3;
+  let watcherRetries = 0;
 
   const updateHealth = () => {
     if (!enableHealthFile) return;
@@ -139,6 +149,7 @@ export async function startSync(
       `${skipped} skipped, ${deleted} deleted`,
     );
     lastSyncAt = new Date().toISOString();
+    onSyncComplete?.({ uploaded, skipped, deleted });
     updateHealth();
   } catch (e: unknown) {
     log(`Initial sync failed: ${(e as Error).message}`);
@@ -146,8 +157,6 @@ export async function startSync(
     serverConnected = false;
     updateHealth();
   }
-
-  let reloading = false;
 
   const rebuildWatcher = async (
     collections: CollectionConfig[],
@@ -179,12 +188,22 @@ export async function startSync(
       (error: Error) => {
         log(`Watcher error: ${error.message}`);
         if (onError) onError(error);
-        if (!reloading) {
-          log("Attempting to rebuild watcher...");
+        if (!reloading && watcherRetries < MAX_WATCHER_RETRIES) {
+          watcherRetries++;
+          log(
+            `Attempting to rebuild watcher ` +
+            `(${watcherRetries}/${MAX_WATCHER_RETRIES})...`,
+          );
           void rebuildWatcher(config.collections);
+        } else if (watcherRetries >= MAX_WATCHER_RETRIES) {
+          log(
+            "Max watcher rebuild attempts reached. " +
+            "File watching stopped.",
+          );
         }
       },
     );
+    watcherRetries = 0;
     log(
       `Watching ${collections.length} collection(s): ` +
       `${collections.map((f) => f.name).join(", ")}`,
@@ -193,114 +212,107 @@ export async function startSync(
 
   await rebuildWatcher(config.collections);
 
-  const pollTimer = setInterval(() => {
+  const reloadConfig = async (): Promise<void> => {
     if (reloading) return;
-    let nextConfig: Config;
-    try {
-      nextConfig = loadConfig();
-    } catch (e: unknown) {
-      log(`Failed to read config: ${(e as Error).message}`);
-      return;
-    }
-
-    ({ config: normalizedConfig, removedOverlappingCollections } =
-      normalizeConfigCollections(nextConfig));
-    maybeLogOverlapWarning(removedOverlappingCollections);
-
-    // Detect core config changes (server, token, username)
-    const coreChanged =
-      normalizedConfig.server !== config.server ||
-      normalizedConfig.token !== config.token ||
-      normalizedConfig.username !== config.username;
-
-    if (!coreChanged) {
-      const { nextConfig: reconciledConfig, added, removed } =
-        reconcileCollections(config, normalizedConfig);
-      if (added.length === 0 && removed.length === 0) return;
-
-      reloading = true;
-      void (async () => {
-        try {
-          log(
-            `Collections changed: ` +
-            `+${added.map((c) => c.name).join(", ") || "none"}, ` +
-            `-${removed.map((c) => c.name).join(", ") || "none"}`,
-          );
-
-          config = reconciledConfig;
-          syncer.setCollections(reconciledConfig.collections);
-          await rebuildWatcher(reconciledConfig.collections);
-
-          for (const collection of removed) {
-            await syncer.purgeCollection(collection);
-          }
-          for (const collection of added) {
-            await syncer.syncCollection(collection);
-          }
-        } catch (e: unknown) {
-          log(
-            `Failed to reload collections: ${(e as Error).message}`,
-          );
-        } finally {
-          reloading = false;
-        }
-      })();
-      return;
-    }
-
-    // Core config changed — full reinitialize
     reloading = true;
-    void (async () => {
+
+    try {
+      let nextConfig: Config;
       try {
-        log("Config changed, reinitializing...");
-        if (config.server !== normalizedConfig.server) {
-          log(
-            `  Server: ${config.server} -> ` +
-            `${normalizedConfig.server}`,
-          );
-        }
-        if (config.username !== normalizedConfig.username) {
-          log(
-            `  Username: ${config.username} -> ` +
-            `${normalizedConfig.username}`,
-          );
-        }
-        if (config.token !== normalizedConfig.token) {
-          log(`  Token: updated`);
-        }
-
-        syncer.stop();
-
-        client = createClient(
-          normalizedConfig.server,
-          normalizedConfig.token,
-        );
-        config = normalizedConfig;
-
-        syncer = new Syncer({
-          client,
-          username: config.username,
-          collections: config.collections,
-          onLog: log,
-        });
-
-        await rebuildWatcher(config.collections);
-
-        if (config.collections.length > 0) {
-          log("Running sync after reinitialize...");
-          const { uploaded, skipped, deleted } =
-            await syncer.initialSync();
-          log(
-            `Sync complete: ${uploaded} uploaded, ` +
-            `${skipped} skipped, ${deleted} deleted`,
-          );
-        }
+        nextConfig = loadConfig();
       } catch (e: unknown) {
-        log(`Failed to reinitialize: ${(e as Error).message}`);
-      } finally {
-        reloading = false;
+        log(`Failed to read config: ${(e as Error).message}`);
+        return;
       }
-    })();
+
+      ({ config: normalizedConfig, removedOverlappingCollections } =
+        normalizeConfigCollections(nextConfig));
+      maybeLogOverlapWarning(removedOverlappingCollections);
+
+      // Detect core config changes (server, token, username)
+      const coreChanged =
+        normalizedConfig.server !== config.server ||
+        normalizedConfig.token !== config.token ||
+        normalizedConfig.username !== config.username;
+
+      if (!coreChanged) {
+        const { nextConfig: reconciledConfig, added, removed } =
+          reconcileCollections(config, normalizedConfig);
+        if (added.length === 0 && removed.length === 0) return;
+
+        log(
+          `Collections changed: ` +
+          `+${added.map((c) => c.name).join(", ") || "none"}, ` +
+          `-${removed.map((c) => c.name).join(", ") || "none"}`,
+        );
+
+        config = reconciledConfig;
+        syncer.setCollections(reconciledConfig.collections);
+        await rebuildWatcher(reconciledConfig.collections);
+
+        for (const collection of removed) {
+          await syncer.purgeCollection(collection);
+        }
+        for (const collection of added) {
+          await syncer.syncCollection(collection);
+        }
+        return;
+      }
+
+      // Core config changed — full reinitialize
+      log("Config changed, reinitializing...");
+      if (config.server !== normalizedConfig.server) {
+        log(
+          `  Server: ${config.server} -> ` +
+          `${normalizedConfig.server}`,
+        );
+      }
+      if (config.username !== normalizedConfig.username) {
+        log(
+          `  Username: ${config.username} -> ` +
+          `${normalizedConfig.username}`,
+        );
+      }
+      if (config.token !== normalizedConfig.token) {
+        log(`  Token: updated`);
+      }
+
+      syncer.stop();
+
+      client = createClient(
+        normalizedConfig.server,
+        normalizedConfig.token,
+      );
+      config = normalizedConfig;
+
+      syncer = new Syncer({
+        client,
+        username: config.username,
+        collections: config.collections,
+        onLog: log,
+      });
+
+      await rebuildWatcher(config.collections);
+
+      if (config.collections.length > 0) {
+        log("Running sync after reinitialize...");
+        const { uploaded, skipped, deleted } =
+          await syncer.initialSync();
+        log(
+          `Sync complete: ${uploaded} uploaded, ` +
+          `${skipped} skipped, ${deleted} deleted`,
+        );
+        onSyncComplete?.({ uploaded, skipped, deleted });
+      }
+    } catch (e: unknown) {
+      log(`Failed to reload config: ${(e as Error).message}`);
+    } finally {
+      reloading = false;
+    }
+  };
+
+  const pollTimer = setInterval(() => {
+    void reloadConfig();
   }, pollInterval);
 
   const healthTimer = setInterval(() => {
@@ -315,13 +327,15 @@ export async function startSync(
     if (reloading || config.collections.length === 0) return;
     void (async () => {
       try {
-        const { uploaded, deleted } = await syncer.initialSync();
+        const { uploaded, skipped, deleted } =
+          await syncer.initialSync();
         lastReconcileAt = new Date().toISOString();
         if (uploaded > 0 || deleted > 0) {
           log(
             `Reconciliation: ${uploaded} uploaded, ${deleted} deleted`,
           );
           lastSyncAt = lastReconcileAt;
+          onSyncComplete?.({ uploaded, skipped, deleted });
         }
         updateHealth();
       } catch (e: unknown) {
@@ -366,7 +380,7 @@ export async function startSync(
     lastReconcileAt,
   });
 
-  return { stop, getStatus };
+  return { stop, getStatus, reloadConfig };
 }
 
 function keyByName(

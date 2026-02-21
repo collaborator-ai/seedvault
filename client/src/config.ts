@@ -148,8 +148,8 @@ export function normalizeConfigCollections(config: Config): NormalizeCollections
 
 export function addCollection(config: Config, collectionPath: string, name: string): AddCollectionResult {
   // Resolve to absolute path
-  const resolved = collectionPath.startsWith("~")
-    ? resolve(homedir(), collectionPath.slice(2))  // skip ~/
+  const resolved = collectionPath.startsWith("~/")
+    ? resolve(homedir(), collectionPath.slice(2))
     : resolve(collectionPath);
 
   // Check for duplicate path
@@ -193,8 +193,8 @@ export function removeCollection(config: Config, name: string): Config {
 
 /** Derive a name from a collection path (its basename) */
 export function defaultCollectionName(collectionPath: string): string {
-  const abs = collectionPath.startsWith("~")
-    ? join(homedir(), collectionPath.slice(1))
+  const abs = collectionPath.startsWith("~/")
+    ? join(homedir(), collectionPath.slice(2))
     : collectionPath;
   const base = abs.split("/").filter(Boolean).pop();
   if (!base) throw new Error(`Cannot derive name from path: ${collectionPath}`);
