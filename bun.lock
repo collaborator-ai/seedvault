@@ -7,7 +7,7 @@
     },
     "cli": {
       "name": "@seedvault/cli",
-      "version": "0.9.1",
+      "version": "0.10.0",
       "bin": {
         "sv": "bin/sv.mjs",
       },
@@ -30,10 +30,14 @@
     "server": {
       "name": "@seedvault/server",
       "version": "0.2.1",
+      "bin": {
+        "seedvault-server": "bin/seedvault-server.mjs",
+      },
       "dependencies": {
         "hono": "^4",
       },
       "devDependencies": {
+        "@seedvault/sdk": "workspace:*",
         "@types/bun": "latest",
         "typescript": "^5",
       },

@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite";
 import { randomBytes, randomUUID } from "crypto";
+import type { SearchResult, ActivityEvent } from "@seedvault/sdk";
 
 let db: Database;
 
@@ -304,12 +305,7 @@ export interface ItemEntry {
   modified_at: string;
 }
 
-export interface SearchResult {
-  contributor: string;
-  path: string;
-  snippet: string;
-  rank: number;
-}
+export type { SearchResult };
 
 /**
  * Resolve origin ctime with fallback chain:
@@ -448,13 +444,7 @@ export function searchItems(
 
 // --- Activity ---
 
-export interface ActivityEvent {
-  id: string;
-  contributor: string;
-  action: string;
-  detail: string | null;
-  created_at: string;
-}
+export type { ActivityEvent };
 
 export interface ListActivityOptions {
   contributor?: string;

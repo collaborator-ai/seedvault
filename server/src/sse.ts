@@ -10,7 +10,7 @@ export function removeClient(controller: ReadableStreamDefaultController): void 
   clients.delete(controller);
 }
 
-export function broadcast(event: string, data: Record<string, unknown>): void {
+export function broadcast(event: string, data: object): void {
   const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
   const encoded = new TextEncoder().encode(message);
 

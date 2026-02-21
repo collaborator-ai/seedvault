@@ -1,6 +1,6 @@
 {
   "name": "@seedvault/server",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "type": "module",
   "bin": {
     "seedvault-server": "bin/seedvault-server.mjs"
@@ -25,6 +25,7 @@
     "hono": "^4"
   },
   "devDependencies": {
+    "@seedvault/sdk": "workspace:*",
     "@types/bun": "latest",
     "typescript": "^5"
   }
