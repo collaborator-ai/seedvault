@@ -223,12 +223,15 @@ describe("daemon API — proxy", () => {
   const REMOTE_PORT = TEST_PORT + 10;
   const PROXY_PORT = TEST_PORT + 11;
 
+  let lastAuthHeader: string | null = null;
+
   beforeAll(() => {
     mockRemote = Bun.serve({
       port: REMOTE_PORT,
       hostname: "127.0.0.1",
       fetch(req) {
         const url = new URL(req.url);
+        lastAuthHeader = req.headers.get("authorization");
 
         if (url.pathname === "/v1/contributors") {
           return Response.json({
@@ -300,6 +303,13 @@ describe("daemon API — proxy", () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toBe("# Hello\n");
+  });
+
+  test("injects auth token from config into proxied requests", async () => {
+    await fetch(
+      `http://localhost:${PROXY_PORT}/v1/contributors`,
+    );
+    expect(lastAuthHeader).toBe("Bearer sv_test_token");
   });
 
   test("returns 502 when remote is unreachable", async () => {

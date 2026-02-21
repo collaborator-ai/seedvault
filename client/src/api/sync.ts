@@ -31,7 +31,6 @@ export interface SyncOptions {
   config: Config;
   onLog?: (msg: string) => void;
   onError?: (error: Error) => void;
-  onFileEvent?: (event: FileEvent) => void;
   reconcileInterval?: number;
   healthInterval?: number;
   pollInterval?: number;
