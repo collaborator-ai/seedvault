@@ -4,8 +4,9 @@ set -euo pipefail
 # Seedvault CLI uninstaller
 # Usage: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/uninstall-cli.sh | bash
 
-UNINSTALLER_VERSION="0.2.0"
+UNINSTALLER_VERSION="0.3.0"
 PACKAGE_NAME="@seedvault/client"
+OLD_PACKAGE_NAME="@seedvault/cli"
 CONFIG_DIR="$HOME/.config/seedvault"
 PID_FILE="$CONFIG_DIR/daemon.pid"
 
@@ -144,6 +145,13 @@ remove_package() {
   if command_exists bun; then
     ui_info "  Running: bun remove -g $PACKAGE_NAME"
     bun remove -g "$PACKAGE_NAME" 2>/dev/null || true
+
+    # Also remove old package name if still installed (renamed from @seedvault/cli)
+    if bun pm ls -g 2>/dev/null | grep -q "$OLD_PACKAGE_NAME"; then
+      ui_info "  Removing old package ($OLD_PACKAGE_NAME)..."
+      bun remove -g "$OLD_PACKAGE_NAME" 2>/dev/null || true
+    fi
+
     ui_success "  Package removed"
   else
     ui_warn "  Bun not found — package may already be removed"

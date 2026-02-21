@@ -90,6 +90,11 @@ jobs:
           bun run build
           npm publish --provenance --access public
 
+      - name: Deprecate old @seedvault/cli package
+        if: steps.cli.outputs.changed == 'true'
+        run: npm deprecate "@seedvault/cli" "Renamed to @seedvault/client — run bun install -g @seedvault/client"
+        continue-on-error: true
+
       - name: Publish server
         if: steps.server.outputs.changed == 'true'
         working-directory: server

@@ -5,8 +5,9 @@ set -euo pipefail
 # Usage: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash
 #    or: curl -fsSL https://raw.githubusercontent.com/collaborator-ai/seedvault/main/install-cli.sh | bash -s -- --no-onboard
 
-INSTALLER_VERSION="0.2.0"
+INSTALLER_VERSION="0.3.0"
 PACKAGE_NAME="@seedvault/client"
+OLD_PACKAGE_NAME="@seedvault/cli"
 BUN_INSTALL_URL="https://bun.sh/install"
 CONFIG_DIR="$HOME/.config/seedvault"
 CONFIG_FILE="$CONFIG_DIR/config.json"
@@ -143,6 +144,12 @@ install_sv() {
       DAEMON_WAS_RUNNING=true
       ui_debug "Daemon is running — will restart after install"
     fi
+  fi
+
+  # Remove old package name if present (renamed from @seedvault/cli)
+  if bun pm ls -g 2>/dev/null | grep -q "$OLD_PACKAGE_NAME"; then
+    ui_info "  Removing old package ($OLD_PACKAGE_NAME)..."
+    bun remove -g "$OLD_PACKAGE_NAME" 2>/dev/null || true
   fi
 
   ui_info "  Running: bun install -g $PACKAGE_NAME"
