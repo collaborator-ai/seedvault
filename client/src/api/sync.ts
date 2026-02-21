@@ -7,6 +7,7 @@ import {
 } from "../config.js";
 import { createClient } from "../client.js";
 import { createWatcher, type FileEvent } from "../daemon/watcher.js";
+import { EventBus } from "../daemon/event-bus.js";
 import { Syncer } from "../daemon/syncer.js";
 import { getDaemonHealth, writeHealthFile } from "./health.js";
 
@@ -23,12 +24,14 @@ export interface SyncStatus {
 export interface SyncHandle {
   stop(): Promise<void>;
   getStatus(): SyncStatus;
+  fileEvents: EventBus<FileEvent>;
 }
 
 export interface SyncOptions {
   config: Config;
   onLog?: (msg: string) => void;
   onError?: (error: Error) => void;
+  onFileEvent?: (event: FileEvent) => void;
   reconcileInterval?: number;
   healthInterval?: number;
   pollInterval?: number;
@@ -52,6 +55,7 @@ export async function startSync(
   } = options;
 
   const log = onLog ?? (() => {});
+  const fileEventBus = new EventBus<FileEvent>();
 
   // Coexistence check: prevent two sync engines
   const existingHealth = getDaemonHealth();
@@ -165,6 +169,7 @@ export async function startSync(
     watcher = createWatcher(
       collections,
       (event: FileEvent) => {
+        fileEventBus.emit(event);
         syncer.handleEvent(event).catch((e) => {
           const label =
             "serverPath" in event
@@ -366,7 +371,7 @@ export async function startSync(
     lastReconcileAt,
   });
 
-  return { stop, getStatus };
+  return { stop, getStatus, fileEvents: fileEventBus };
 }
 
 function keyByName(
