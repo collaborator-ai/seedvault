@@ -216,3 +216,110 @@ describe("daemon API — collection management", () => {
     }
   });
 });
+
+describe("daemon API — proxy", () => {
+  let mockRemote: ReturnType<typeof Bun.serve>;
+  let proxyServer: ReturnType<typeof createDaemonServer>;
+  const REMOTE_PORT = TEST_PORT + 10;
+  const PROXY_PORT = TEST_PORT + 11;
+
+  beforeAll(() => {
+    mockRemote = Bun.serve({
+      port: REMOTE_PORT,
+      hostname: "127.0.0.1",
+      fetch(req) {
+        const url = new URL(req.url);
+
+        if (url.pathname === "/v1/contributors") {
+          return Response.json({
+            contributors: [
+              {
+                username: "alice",
+                createdAt: "2026-01-01T00:00:00Z",
+              },
+            ],
+          });
+        }
+
+        if (url.pathname === "/health") {
+          return Response.json({ status: "ok" });
+        }
+
+        if (url.pathname.startsWith("/v1/files/")) {
+          return new Response("# Hello\n", {
+            headers: { "Content-Type": "text/markdown" },
+          });
+        }
+
+        return Response.json(
+          { error: "Not found" },
+          { status: 404 },
+        );
+      },
+    });
+
+    proxyServer = createDaemonServer({
+      port: PROXY_PORT,
+      getConfig: () => ({
+        ...mockConfig,
+        server: `http://127.0.0.1:${REMOTE_PORT}`,
+      }),
+      getStatus: () => mockStatus,
+      fileEvents,
+    });
+  });
+
+  afterAll(() => {
+    proxyServer.stop();
+    mockRemote.stop();
+  });
+
+  test("proxies GET /v1/contributors", async () => {
+    const res = await fetch(
+      `http://localhost:${PROXY_PORT}/v1/contributors`,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.contributors).toHaveLength(1);
+    expect(body.contributors[0].username).toBe("alice");
+  });
+
+  test("proxies GET /health", async () => {
+    const res = await fetch(
+      `http://localhost:${PROXY_PORT}/health`,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.status).toBe("ok");
+  });
+
+  test("proxies GET /v1/files/:user/*path", async () => {
+    const res = await fetch(
+      `http://localhost:${PROXY_PORT}/v1/files/alice/notes/test.md`,
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toBe("# Hello\n");
+  });
+
+  test("returns 502 when remote is unreachable", async () => {
+    const deadServer = createDaemonServer({
+      port: PROXY_PORT + 1,
+      getConfig: () => ({
+        ...mockConfig,
+        server: "http://127.0.0.1:1",
+      }),
+      getStatus: () => mockStatus,
+      fileEvents,
+    });
+
+    try {
+      const res = await fetch(
+        `http://localhost:${PROXY_PORT + 1}/v1/contributors`,
+      );
+      expect(res.status).toBe(502);
+    } finally {
+      deadServer.stop();
+    }
+  });
+});
