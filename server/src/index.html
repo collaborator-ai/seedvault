@@ -1219,7 +1219,7 @@
 
 				if (isFile) {
 					const ctime = child.__file.createdAt || "";
-					row.innerHTML = '<span class="name"><span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + key + '</span><span class="ctime">' + formatCtime(ctime) + '</span>';
+					row.innerHTML = '<span class="name"><span class="arrow">&nbsp;</span><i class="ph ph-file-text"></i> ' + escapeHtml(key) + '</span><span class="ctime">' + formatCtime(ctime) + '</span>';
 					row.dataset.path = child.__file.path;
 					row.dataset.contributor = username;
 					row.dataset.action = "open";
@@ -1229,7 +1229,7 @@
 					const expanded = getExpandedKeys().has(username + ":" + nodePath);
 					const arrow = expanded ? "&#9660;" : "&#9654;";
 					if (!expanded) sub.classList.add("collapsed");
-					row.innerHTML = '<span class="name"><span class="arrow">' + arrow + '</span><i class="ph ph-folder"></i> ' + key + ' <span style="opacity:0.45;font-size:11px">' + fileCount + '</span></span>';
+					row.innerHTML = '<span class="name"><span class="arrow">' + arrow + '</span><i class="ph ph-folder"></i> ' + escapeHtml(key) + ' <span style="opacity:0.45;font-size:11px">' + fileCount + '</span></span>';
 					row.dataset.action = "toggle";
 					row.dataset.toggleKey = username + ":" + nodePath;
 					renderTree(child, sub, username, depth + 1, nodePath);
@@ -1492,7 +1492,11 @@
 			});
 
 			evtSource.onerror = () => {
-				// EventSource auto-reconnects
+				// EventSource auto-reconnects; refresh state on reconnect
+				if (evtSource.readyState === EventSource.CONNECTING) {
+					const selected = selectEl.value;
+					if (selected) scheduleContributorReload(selected);
+				}
 			};
 		}
 

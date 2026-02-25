@@ -58,16 +58,11 @@ export async function startSync(
 
   const log = onLog ?? (() => {});
 
-  let config = options.config;
-  let { config: normalizedConfig, removedOverlappingCollections } =
-    normalizeConfigCollections(config);
-  if (removedOverlappingCollections.length > 0) {
-    config = normalizedConfig;
-  }
+  const initial = normalizeConfigCollections(options.config);
+  let config = initial.config;
 
   let client = createClient(config.server, config.token);
 
-  // Verify server reachable
   try {
     await client.health();
   } catch {
@@ -91,7 +86,7 @@ export async function startSync(
     log(`Ignoring overlapping collections in config: ${summary}`);
   };
 
-  maybeLogOverlapWarning(removedOverlappingCollections);
+  maybeLogOverlapWarning(initial.removedOverlappingCollections);
 
   let syncer = new Syncer({
     client,
@@ -175,7 +170,7 @@ export async function startSync(
       },
       (error: Error) => {
         log(`Watcher error: ${error.message}`);
-        if (onError) onError(error);
+        onError?.(error);
         if (!reloading && watcherRetries < MAX_WATCHER_RETRIES) {
           watcherRetries++;
           log(
@@ -207,19 +202,19 @@ export async function startSync(
     reloading = true;
 
     try {
-      ({ config: normalizedConfig, removedOverlappingCollections } =
-        normalizeConfigCollections(nextConfig));
-      maybeLogOverlapWarning(removedOverlappingCollections);
+      const normalized = normalizeConfigCollections(nextConfig);
+      maybeLogOverlapWarning(normalized.removedOverlappingCollections);
 
-      // Detect core config changes (server, token, username)
+      const incoming = normalized.config;
+
       const coreChanged =
-        normalizedConfig.server !== config.server ||
-        normalizedConfig.token !== config.token ||
-        normalizedConfig.username !== config.username;
+        incoming.server !== config.server ||
+        incoming.token !== config.token ||
+        incoming.username !== config.username;
 
       if (!coreChanged) {
         const { nextConfig: reconciledConfig, added, removed } =
-          reconcileCollections(config, normalizedConfig);
+          reconcileCollections(config, incoming);
         if (added.length === 0 && removed.length === 0) return;
 
         log(
@@ -241,31 +236,25 @@ export async function startSync(
         return;
       }
 
-      // Core config changed — full reinitialize
       log("Config changed, reinitializing...");
-      if (config.server !== normalizedConfig.server) {
+      if (config.server !== incoming.server) {
         log(
-          `  Server: ${config.server} -> ` +
-          `${normalizedConfig.server}`,
+          `  Server: ${config.server} -> ${incoming.server}`,
         );
       }
-      if (config.username !== normalizedConfig.username) {
+      if (config.username !== incoming.username) {
         log(
-          `  Username: ${config.username} -> ` +
-          `${normalizedConfig.username}`,
+          `  Username: ${config.username} -> ${incoming.username}`,
         );
       }
-      if (config.token !== normalizedConfig.token) {
+      if (config.token !== incoming.token) {
         log(`  Token: updated`);
       }
 
       syncer.stop();
 
-      client = createClient(
-        normalizedConfig.server,
-        normalizedConfig.token,
-      );
-      config = normalizedConfig;
+      client = createClient(incoming.server, incoming.token);
+      config = incoming;
 
       syncer = new Syncer({
         client,
@@ -301,26 +290,29 @@ export async function startSync(
     updateHealth();
   }, healthInterval);
 
-  const reconcileTimer = setInterval(() => {
+  const reconcile = async (): Promise<void> => {
     if (reloading || config.collections.length === 0) return;
-    void (async () => {
-      try {
-        const { uploaded, skipped, deleted } =
-          await syncer.initialSync();
-        lastReconcileAt = new Date().toISOString();
-        if (uploaded > 0 || deleted > 0) {
-          log(
-            `Reconciliation: ${uploaded} uploaded, ${deleted} deleted`,
-          );
-          lastSyncAt = lastReconcileAt;
-          onSyncComplete?.({ uploaded, skipped, deleted });
-        }
-        updateHealth();
-      } catch (e: unknown) {
-        log(`Reconciliation failed: ${(e as Error).message}`);
+    try {
+      const { uploaded, skipped, deleted } =
+        await syncer.initialSync();
+      lastReconcileAt = new Date().toISOString();
+      if (uploaded > 0 || deleted > 0) {
+        log(
+          `Reconciliation: ${uploaded} uploaded, ${deleted} deleted`,
+        );
+        lastSyncAt = lastReconcileAt;
+        onSyncComplete?.({ uploaded, skipped, deleted });
       }
-    })();
-  }, reconcileInterval);
+      updateHealth();
+    } catch (e: unknown) {
+      log(`Reconciliation failed: ${(e as Error).message}`);
+    }
+  };
+
+  const reconcileTimer = setInterval(
+    () => void reconcile(),
+    reconcileInterval,
+  );
 
   const stop = async (): Promise<void> => {
     if (stopped) return;

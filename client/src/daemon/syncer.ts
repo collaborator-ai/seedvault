@@ -146,7 +146,9 @@ export class Syncer {
       }
 
       // Phase 1: Prepare — read local files and decide what to upload
-      const localFiles = await walkMd(collection.path);
+      const walkError = (p: string, e: Error) =>
+        this.log(`  Skipping ${p}: ${e.message}`);
+      const localFiles = await walkMd(collection.path, walkError);
       const localServerPaths = new Set<string>();
       const toUpload: { serverPath: string; content: string; originCtime: string; originMtime: string }[] = [];
 
@@ -398,9 +400,12 @@ function toPosixPath(path: string): string {
   return path.split("\\").join("/");
 }
 
-async function walkMd(dir: string): Promise<LocalFile[]> {
+async function walkMd(
+  dir: string,
+  onError?: (path: string, err: Error) => void,
+): Promise<LocalFile[]> {
   const results: LocalFile[] = [];
-  await walkDirRecursive(dir, results);
+  await walkDirRecursive(dir, results, onError);
   return results;
 }
 
@@ -415,20 +420,33 @@ async function pooled<T>(items: T[], concurrency: number, fn: (item: T) => Promi
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
 }
 
-async function walkDirRecursive(dir: string, results: LocalFile[]): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
+async function walkDirRecursive(
+  dir: string,
+  results: LocalFile[],
+  onError?: (path: string, err: Error) => void,
+): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (e) {
+    onError?.(dir, e as Error);
+    return;
+  }
 
   for (const entry of entries) {
-    // Skip hidden dirs and node_modules
     if (entry.name.startsWith(".") || entry.name === "node_modules") continue;
 
     const full = join(dir, entry.name);
 
-    if (entry.isDirectory()) {
-      await walkDirRecursive(full, results);
-    } else if (entry.isFile() && entry.name.endsWith(".md")) {
-      const s = await stat(full);
-      results.push({ path: full, mtimeMs: s.mtimeMs, birthtimeMs: s.birthtimeMs });
+    try {
+      if (entry.isDirectory()) {
+        await walkDirRecursive(full, results, onError);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        const s = await stat(full);
+        results.push({ path: full, mtimeMs: s.mtimeMs, birthtimeMs: s.birthtimeMs });
+      }
+    } catch (e) {
+      onError?.(full, e as Error);
     }
   }
 }

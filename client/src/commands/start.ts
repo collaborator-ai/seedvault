@@ -51,11 +51,12 @@ async function startForeground(): Promise<void> {
     log(`Failed to start: ${(e as Error).message}`);
     try {
       unlinkSync(getPidPath());
-    } catch {}
+    } catch {
+      // PID file may not exist yet
+    }
     process.exit(1);
   });
 
-  // Watch config.json for changes instead of polling
   let configDebounce: ReturnType<typeof setTimeout> | null = null;
   const configWatcher: FSWatcher = watch(
     getConfigPath(),
@@ -86,7 +87,9 @@ async function startForeground(): Promise<void> {
       .finally(() => {
         try {
           unlinkSync(getPidPath());
-        } catch {}
+        } catch {
+          // PID file may already be removed
+        }
         process.exit(0);
       });
   };

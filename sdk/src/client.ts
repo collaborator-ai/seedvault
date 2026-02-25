@@ -275,9 +275,9 @@ export function createClient(
         }
 
         // Stream ended without error (server closed) — reconnect
+        // Keep backoff at 1s since the connection was healthy
         if (controller.signal.aborted) return;
         await new Promise((r) => setTimeout(r, backoff));
-        backoff = Math.min(backoff * 2, MAX_BACKOFF);
       }
     },
   };

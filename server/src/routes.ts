@@ -485,7 +485,12 @@ export function createApp(): Hono {
 			return c.json({ error: "Contributor not found" }, 404);
 		}
 
-		const results = searchItems(q, contributorParam, limit);
+		let results;
+		try {
+			results = searchItems(q, contributorParam, limit);
+		} catch {
+			return c.json({ error: "Invalid search query" }, 400);
+		}
 		return c.json({ results });
 	});
 

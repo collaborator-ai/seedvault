@@ -188,12 +188,16 @@ export function deleteContributor(username: string): boolean {
     .prepare("SELECT 1 FROM contributors WHERE username = ?")
     .get(username);
   if (!exists) return false;
-  d.prepare("DELETE FROM activity WHERE contributor = ?").run(username);
-  d.prepare("DELETE FROM items WHERE contributor = ?").run(username);
-  d.prepare("DELETE FROM api_keys WHERE contributor = ?").run(username);
-  d.prepare("UPDATE invites SET used_by = NULL WHERE used_by = ?").run(username);
-  d.prepare("DELETE FROM invites WHERE created_by = ?").run(username);
-  d.prepare("DELETE FROM contributors WHERE username = ?").run(username);
+
+  d.transaction(() => {
+    d.prepare("DELETE FROM activity WHERE contributor = ?").run(username);
+    d.prepare("DELETE FROM items WHERE contributor = ?").run(username);
+    d.prepare("DELETE FROM api_keys WHERE contributor = ?").run(username);
+    d.prepare("UPDATE invites SET used_by = NULL WHERE used_by = ?").run(username);
+    d.prepare("DELETE FROM invites WHERE created_by = ?").run(username);
+    d.prepare("DELETE FROM contributors WHERE username = ?").run(username);
+  })();
+
   return true;
 }
 
